@@ -47,6 +47,14 @@ if [ ! -d "${PIGEN_DIR}/stage-flint" ]; then
     echo "==> Copied stage-flint into pi-gen"
 fi
 
+# Skip the fork's private CPZero app installers (Recorder/CameraApp/etc.) —
+# private repos we can't reach; flint replaces them. pi-gen skips non-executable
+# run scripts. APPLaunch (02-run.sh) stays; flint self-registers via deb postinst.
+if [ -f "${PIGEN_DIR}/stage2/05-cardputerzero/03-run.sh" ]; then
+    chmod -x "${PIGEN_DIR}/stage2/05-cardputerzero/03-run.sh"
+    echo "==> Disabled fork's private CPZero app installer"
+fi
+
 # ── 4. Run pi-gen build (Docker) ─────────────────────────────────────────────
 echo "==> Starting pi-gen build (this takes ~30–45 minutes)"
 cd "${PIGEN_DIR}"

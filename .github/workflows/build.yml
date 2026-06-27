@@ -59,6 +59,14 @@ jobs:
       - name: Copy custom stage into pi-gen
         run: cp -r stage-flint pi-gen/stage-flint
 
+      - name: Skip fork's private CPZero app installers
+        # stage2/05-cardputerzero/03-run.sh pulls Recorder/CameraApp/FactoryTest/
+        # Compass from private CardputerZero repos (needs APP_RELEASES_TOKEN we
+        # don't have, and irrelevant on RPi 3B+). pi-gen skips non-executable
+        # run scripts, so drop the +x bit. APPLaunch (02-run.sh) stays — flint
+        # registers itself with it via the deb postinst.
+        run: chmod -x pi-gen/stage2/05-cardputerzero/03-run.sh
+
       - name: Write pi-gen config
         run: |
           IMG_DATE=$(date +%Y-%m-%d)

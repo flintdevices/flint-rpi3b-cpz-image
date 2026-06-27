@@ -57,7 +57,8 @@ WIFI_PASSWORD=YourPassword
 ```
 
 2. SSH is enabled by default. Connect with `ssh flint@flint.local` (password: `flint`).
-3. flint starts automatically on the display. Use a USB keyboard to navigate.
+3. The device boots into the **APPLaunch** launcher (same as the official CardputerZero image).
+   **Flint** appears as an app in the launcher — select it with the USB keyboard.
 
 ---
 
@@ -105,10 +106,12 @@ build.sh                    # local build entrypoint (wraps pi-gen + dtc)
 Dockerfile                  # reproducible build environment
 overlays/
   rpi3b-flint-overlay.dts   # custom DTS: SPI display, GPIO27 RST, no M5IOE1
-stage-flint/                # pi-gen stage: installs flint on top of stage2 base
+stage-flint/                # pi-gen stage: installs flint on top of the stage2 CPZero base
   00-packages               # apt package list
-  01-run.sh                 # config.txt patches, SSH, Wi-Fi placeholder
-  02-run.sh                 # install flint .deb from releases.flintdevices.dev
-  03-run.sh                 # autostart: flint launches on boot like CPZero
+  01-run.sh                 # RPi 3B+ display overlay, config.txt, SSH, Wi-Fi placeholder
+  02-run.sh                 # install flint .deb (its postinst registers flint with APPLaunch)
+  prerun.sh / EXPORT_IMAGE  # seed rootfs from stage2; export the flint image
 pi-gen/                     # submodule: CardputerZero/pi-gen (arm64 branch)
+                            #   stage2/05-cardputerzero installs APPLaunch + HW overlays;
+                            #   its private-app installer (03-run.sh) is skipped at build time
 ```
