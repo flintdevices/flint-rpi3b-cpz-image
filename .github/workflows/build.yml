@@ -13,11 +13,12 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # ARM runner: executes arm64 binaries natively — no qemu emulation needed
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
 
     permissions:
-      contents: write   # needed to create GitHub Releases
+      contents: write
 
     steps:
       - name: Checkout (with submodules)
@@ -25,18 +26,20 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          df -h /
+
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y device-tree-compiler qemu-user qemu-user-static binfmt-support
-
-      - name: Register qemu-aarch64 binfmt (kernel-level, persistent for containers)
-        run: |
-          # This registers qemu-aarch64-static with the F (fix-binary) flag so
-          # Docker containers can transparently execute arm64 ELF binaries.
-          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes --credential yes
-          # Verify registration landed in the kernel
-          cat /proc/sys/fs/binfmt_misc/qemu-aarch64 | grep "flags:" || true
+          sudo apt-get install -y \
+            coreutils quilt parted debootstrap zerofree zip \
+            dosfstools libarchive-tools libcap2-bin grep rsync \
+            xz-utils file git curl bc gpg pigz xxd arch-test \
+            qemu-user-static kmod binfmt-support e2fsprogs \
+            device-tree-compiler
 
       - name: Compile DTS overlay
         run: |
@@ -58,17 +61,44 @@ jobs:
           cp -r stage0b     pi-gen/stage0b
           cp -r stage-flint pi-gen/stage-flint
 
-      - name: Build image (pi-gen Docker)
-        env:
-          FLINT_DEB_URL: ${{ steps.deb_url.outputs.url }}
+      - name: Write pi-gen config
+        run: |
+          IMG_DATE=$(date +%Y-%m-%d)
+          cat > pi-gen/config << EOF
+          IMG_NAME=flint-rpi3b-cpz
+          IMG_FILENAME=${IMG_DATE}-flint-rpi3b-cpz
+          ARCHIVE_FILENAME=${IMG_DATE}-flint-rpi3b-cpz
+          RELEASE=trixie
+          DEPLOY_COMPRESSION=xz
+          DEPLOY_ZIP=0
+          TARGET_HOSTNAME=flint
+          FIRST_USER_NAME=flint
+          FIRST_USER_PASS=flint
+          ENABLE_SSH=1
+          LOCALE_DEFAULT=en_GB.UTF-8
+          TIMEZONE_DEFAULT=UTC
+          KEYBOARD_KEYMAP=gb
+          KEYBOARD_LAYOUT=English (UK)
+          STAGE_LIST=stage0 stage0b stage1 stage2 stage-flint
+          FLINT_DEB_URL=${{ steps.deb_url.outputs.url }}
+          EOF
+          sed -i 's/^          //' pi-gen/config
+          # Skip unused stages
+          touch pi-gen/stage3/SKIP pi-gen/stage3/SKIP_IMAGES || true
+          touch pi-gen/stage4/SKIP pi-gen/stage4/SKIP_IMAGES || true
+          touch pi-gen/stage5/SKIP pi-gen/stage5/SKIP_IMAGES || true
+
+      - name: Build image
         run: |
           cd pi-gen
-          ./build-docker.sh -c "${GITHUB_WORKSPACE}/config"
+          sudo XZ_DEFAULTS="-T0" ./build.sh
+        env:
+          FLINT_DEB_URL: ${{ steps.deb_url.outputs.url }}
 
       - name: Collect image artifact
         id: artifact
         run: |
-          IMG=$(ls pi-gen/deploy/*.img.xz | head -1)
+          IMG=$(ls pi-gen/deploy/*.img.xz 2>/dev/null | head -1)
           echo "path=${IMG}" >> "$GITHUB_OUTPUT"
           echo "name=$(basename ${IMG})" >> "$GITHUB_OUTPUT"
 
@@ -93,7 +123,7 @@ jobs:
             3. flint starts automatically on the ST7789V display.
 
             ### Hardware wiring
-            See [docs/cardputer/rpi3bplus-dev-setup.md](https://github.com/${{ github.repository }}/blob/main/docs/cardputer/rpi3bplus-dev-setup.md) for full wiring table.
+            See the [wiring guide](https://github.com/${{ github.repository }}/blob/main/docs/cardputer/rpi3bplus-dev-setup.md).
 
             Built from flint: `${{ steps.deb_url.outputs.url }}`
           files: ${{ steps.artifact.outputs.path }}
