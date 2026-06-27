@@ -39,12 +39,13 @@ if [ ! -f "${PIGEN_DIR}/build.sh" ]; then
     exit 1
 fi
 
-# ── 3. Symlink custom stages into pi-gen ────────────────────────────────────
+# ── 3. Copy custom stages into pi-gen ───────────────────────────────────────
+# realpath inside pi-gen/build.sh resolves symlinks to their source path,
+# which doesn't exist inside the Docker container — must copy, not symlink.
 for STAGE in stage0b stage-flint; do
-    STAGE_LINK="${PIGEN_DIR}/${STAGE}"
-    if [ ! -L "${STAGE_LINK}" ]; then
-        ln -sf "${SCRIPT_DIR}/${STAGE}" "${STAGE_LINK}"
-        echo "==> Linked ${STAGE} into pi-gen"
+    if [ ! -d "${PIGEN_DIR}/${STAGE}" ]; then
+        cp -r "${SCRIPT_DIR}/${STAGE}" "${PIGEN_DIR}/${STAGE}"
+        echo "==> Copied ${STAGE} into pi-gen"
     fi
 done
 
