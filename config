@@ -2,7 +2,7 @@
 # Reference: https://github.com/RPi-Distro/pi-gen#config
 
 IMG_NAME="flint-rpi3b-cpz"
-RELEASE="bookworm"
+RELEASE="trixie"
 DEPLOY_COMPRESSION="xz"
 DEPLOY_ZIP=0
 
