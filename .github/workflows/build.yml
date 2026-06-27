@@ -28,10 +28,10 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y device-tree-compiler qemu-user-static binfmt-support
-          # Register arm64 binfmt so pi-gen chroot can execute aarch64 binaries
+          # qemu-user installs /usr/bin/qemu-aarch64 (required by pi-gen host check)
+          # qemu-user-static + binfmt-support register it in binfmt_misc
+          sudo apt-get install -y device-tree-compiler qemu-user qemu-user-static binfmt-support
           sudo update-binfmts --enable qemu-aarch64 || true
-          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
       - name: Compile DTS overlay
         run: |
