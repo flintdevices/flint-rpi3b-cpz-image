@@ -53,8 +53,10 @@ jobs:
           fi
           echo "url=${URL}" >> "$GITHUB_OUTPUT"
 
-      - name: Link stage-flint into pi-gen
-        run: ln -sf "${GITHUB_WORKSPACE}/stage-flint" pi-gen/stage-flint
+      - name: Link custom stages into pi-gen
+        run: |
+          ln -sf "${GITHUB_WORKSPACE}/stage0b"     pi-gen/stage0b
+          ln -sf "${GITHUB_WORKSPACE}/stage-flint" pi-gen/stage-flint
 
       - name: Build image (pi-gen Docker)
         env:

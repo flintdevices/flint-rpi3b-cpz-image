@@ -39,12 +39,14 @@ if [ ! -f "${PIGEN_DIR}/build.sh" ]; then
     exit 1
 fi
 
-# ── 3. Symlink stage-flint into pi-gen ──────────────────────────────────────
-STAGE_LINK="${PIGEN_DIR}/stage-flint"
-if [ ! -L "${STAGE_LINK}" ]; then
-    ln -sf "${STAGE_FLINT_DIR}" "${STAGE_LINK}"
-    echo "==> Linked stage-flint into pi-gen"
-fi
+# ── 3. Symlink custom stages into pi-gen ────────────────────────────────────
+for STAGE in stage0b stage-flint; do
+    STAGE_LINK="${PIGEN_DIR}/${STAGE}"
+    if [ ! -L "${STAGE_LINK}" ]; then
+        ln -sf "${SCRIPT_DIR}/${STAGE}" "${STAGE_LINK}"
+        echo "==> Linked ${STAGE} into pi-gen"
+    fi
+done
 
 # ── 4. Run pi-gen build (Docker) ─────────────────────────────────────────────
 echo "==> Starting pi-gen build (this takes ~30–45 minutes)"
