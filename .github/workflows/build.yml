@@ -77,7 +77,7 @@ jobs:
           TIMEZONE_DEFAULT=UTC
           KEYBOARD_KEYMAP=gb
           KEYBOARD_LAYOUT="English (UK)"
-          STAGE_LIST=stage0 stage1 stage2 stage-flint
+          STAGE_LIST="stage0 stage1 stage2 stage-flint"
           FLINT_DEB_URL=${{ steps.deb_url.outputs.url }}
           EOF
           sed -i 's/^          //' pi-gen/config
