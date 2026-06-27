@@ -30,4 +30,4 @@ ENABLE_SSH=1
 
 # Stage list (relative to pi-gen root, then our custom stage)
 # Evaluated by build.sh — order matters
-STAGE_LIST="stage0 stage0b stage1 stage2 stage-flint"
+STAGE_LIST="stage0 stage1 stage2 stage-flint"

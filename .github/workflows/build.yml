@@ -56,10 +56,8 @@ jobs:
           fi
           echo "url=${URL}" >> "$GITHUB_OUTPUT"
 
-      - name: Copy custom stages into pi-gen
-        run: |
-          cp -r stage0b     pi-gen/stage0b
-          cp -r stage-flint pi-gen/stage-flint
+      - name: Copy custom stage into pi-gen
+        run: cp -r stage-flint pi-gen/stage-flint
 
       - name: Write pi-gen config
         run: |
@@ -78,12 +76,12 @@ jobs:
           LOCALE_DEFAULT=en_GB.UTF-8
           TIMEZONE_DEFAULT=UTC
           KEYBOARD_KEYMAP=gb
-          KEYBOARD_LAYOUT=English (UK)
-          STAGE_LIST=stage0 stage0b stage1 stage2 stage-flint
+          KEYBOARD_LAYOUT="English (UK)"
+          STAGE_LIST=stage0 stage1 stage2 stage-flint
           FLINT_DEB_URL=${{ steps.deb_url.outputs.url }}
           EOF
           sed -i 's/^          //' pi-gen/config
-          # Skip unused stages
+          # Skip the desktop stages we don't use (our flint image branches off stage2 Lite)
           touch pi-gen/stage3/SKIP pi-gen/stage3/SKIP_IMAGES || true
           touch pi-gen/stage4/SKIP pi-gen/stage4/SKIP_IMAGES || true
           touch pi-gen/stage5/SKIP pi-gen/stage5/SKIP_IMAGES || true
@@ -98,7 +96,15 @@ jobs:
       - name: Collect image artifact
         id: artifact
         run: |
-          IMG=$(ls pi-gen/deploy/*.img.xz 2>/dev/null | head -1)
+          sudo chown -R "$(id -u):$(id -g)" pi-gen/deploy/
+          echo "Contents of deploy/:"
+          find pi-gen/deploy/ -type f | sort
+          # stage2 exports a -lite image (no flint); stage-flint exports ours (no suffix)
+          IMG=$(find pi-gen/deploy/ -type f -name "*.img.xz" ! -name "*-lite*" | head -1)
+          if [ -z "${IMG}" ]; then
+            echo "ERROR: no flint image found in deploy/"
+            exit 1
+          fi
           echo "path=${IMG}" >> "$GITHUB_OUTPUT"
           echo "name=$(basename ${IMG})" >> "$GITHUB_OUTPUT"
 

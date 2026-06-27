@@ -39,15 +39,13 @@ if [ ! -f "${PIGEN_DIR}/build.sh" ]; then
     exit 1
 fi
 
-# ── 3. Copy custom stages into pi-gen ───────────────────────────────────────
+# ── 3. Copy custom stage into pi-gen ────────────────────────────────────────
 # realpath inside pi-gen/build.sh resolves symlinks to their source path,
 # which doesn't exist inside the Docker container — must copy, not symlink.
-for STAGE in stage0b stage-flint; do
-    if [ ! -d "${PIGEN_DIR}/${STAGE}" ]; then
-        cp -r "${SCRIPT_DIR}/${STAGE}" "${PIGEN_DIR}/${STAGE}"
-        echo "==> Copied ${STAGE} into pi-gen"
-    fi
-done
+if [ ! -d "${PIGEN_DIR}/stage-flint" ]; then
+    cp -r "${STAGE_FLINT_DIR}" "${PIGEN_DIR}/stage-flint"
+    echo "==> Copied stage-flint into pi-gen"
+fi
 
 # ── 4. Run pi-gen build (Docker) ─────────────────────────────────────────────
 echo "==> Starting pi-gen build (this takes ~30–45 minutes)"
