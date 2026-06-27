@@ -1,0 +1,11 @@
+python3
+python3-pip
+python3-venv
+python3-pygame
+python3-pil
+libsdl2-dev
+libsdl2-image-dev
+libsdl2-ttf-dev
+libasound2-dev
+device-tree-compiler
+i2c-tools

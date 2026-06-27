@@ -1,0 +1,33 @@
+# pi-gen build configuration for flint-rpi3b-cpz-image
+# Reference: https://github.com/RPi-Distro/pi-gen#config
+
+IMG_NAME="flint-rpi3b-cpz"
+RELEASE="bookworm"
+DEPLOY_COMPRESSION="xz"
+DEPLOY_ZIP=0
+
+# Target: RPi 3B+ (BCM2837, arm64)
+# rpi-v8 kernel covers BCM2837; rpi-2712 (Pi 5) is excluded by SKIP below
+TARGET_HOSTNAME="flint"
+
+# First-boot user (no password prompt — SSH key or serial console to change)
+FIRST_USER_NAME="flint"
+FIRST_USER_PASS="flint"
+
+# Locale / timezone — adjust as needed
+LOCALE_DEFAULT="en_GB.UTF-8"
+TIMEZONE_DEFAULT="UTC"
+KEYBOARD_KEYMAP="gb"
+KEYBOARD_LAYOUT="English (UK)"
+
+# Disable stages we don't need (desktop, LibreOffice)
+SKIP_STAGE3=1
+SKIP_STAGE4=0   # Lite export — our stage-flint runs after stage4
+SKIP_STAGE5=1
+
+# Enable SSH on first boot
+ENABLE_SSH=1
+
+# Stage list (relative to pi-gen root, then our custom stage)
+# Evaluated by build.sh — order matters
+STAGE_LIST="stage0 stage1 stage2 stage-flint"

@@ -1,0 +1,13 @@
+[Unit]
+Description=flint first-boot Wi-Fi configuration
+After=network-pre.target
+Before=network.target wpa_supplicant.service
+ConditionPathExists=/boot/firmware/wifi.txt
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/flint-wifi-setup.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

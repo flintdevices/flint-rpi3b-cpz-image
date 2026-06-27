@@ -1,0 +1,22 @@
+[Unit]
+Description=flint offensive security firmware
+After=multi-user.target
+Wants=multi-user.target
+
+[Service]
+User=flint
+Group=flint
+WorkingDirectory=/home/flint
+Environment=FLINT_TARGET=cardputer
+Environment=FLINT_HEADLESS=0
+Environment=SDL_VIDEODRIVER=fbcon
+Environment=SDL_FBDEV=/dev/fb0
+Environment=SDL_AUDIODRIVER=dummy
+ExecStart=/usr/bin/flint
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

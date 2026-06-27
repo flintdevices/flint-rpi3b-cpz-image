@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: GPL-2.0
+// Device Tree overlay for flint on Raspberry Pi 3B+
+//
+// Differences from cardputerzero-overlay:
+//   - No M5IOE1 / PY32 IO expander (backlight always on, wired to 3V3)
+//   - Display RST on GPIO27 (direct GPIO, not via M5IOE1 PYG5)
+//   - No audio (ES8389 not present)
+//   - No TCA8418 keyboard (USB HID keyboard used instead)
+//   - compatible = "brcm,bcm2837" (RPi 3B+ SoC)
+
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "brcm,bcm2837";
+
+    // fragment@0 — GPIO pin assignments
+    fragment@0 {
+        target = <&gpio>;
+        __overlay__ {
+            st7789v_pins: st7789v_pins {
+                // GPIO25 = DC (Data/Command), GPIO27 = RST (active-low)
+                brcm,pins = <25 27>;
+                brcm,function = <1>;    // output
+                brcm,pull = <0>;        // no pull
+            };
+        };
+    };
+
+    // fragment@1 — SPI0: ST7789V display on CS0, disable default spidev
+    fragment@1 {
+        target = <&spi0>;
+        __overlay__ {
+            #address-cells = <1>;
+            #size-cells = <0>;
+            status = "okay";
+
+            spidev@0 {
+                status = "disabled";
+            };
+
+            st7789v: st7789v@0 {
+                compatible = "sitronix,st7789v_m5stack";
+                reg = <0>;                      // CS0 = GPIO8
+                spi-max-frequency = <50000000>;
+                dc-gpios = <&gpio 25 0>;        // DC = GPIO25, active-high
+                reset-gpios = <&gpio 27 1>;     // RST = GPIO27, active-low
+                width = <170>;
+                height = <320>;
+                x-offset = <0>;
+                y-offset = <35>;
+                rotation = <90>;
+                fps = <60>;
+            };
+        };
+    };
+};

@@ -1,0 +1,10 @@
+deploy/
+work/
+pi-gen/work/
+pi-gen/deploy/
+*.img
+*.img.xz
+*.dtbo
+__pycache__/
+*.pyc
+.env
