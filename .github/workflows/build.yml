@@ -137,7 +137,7 @@ jobs:
             3. flint starts automatically on the ST7789V display.
 
             ### Hardware wiring
-            See the [wiring guide](https://github.com/${{ github.repository }}/blob/main/docs/cardputer/rpi3bplus-dev-setup.md).
+            See the [wiring guide](https://github.com/${{ github.repository }}/blob/main/docs/rpi3bplus-dev-setup.md).
 
             Built from flint: `${{ steps.deb_url.outputs.url }}`
           files: ${{ steps.artifact.outputs.path }}

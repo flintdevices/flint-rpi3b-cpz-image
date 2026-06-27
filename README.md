@@ -19,6 +19,8 @@ pre-installed and auto-started on a generic ST7789V 320×170 SPI display.
 | Storage | MicroSD card, 8 GB+ (16 GB recommended) |
 | Power | 5V / 3A USB micro supply |
 
+See the full [hardware and wiring guide](docs/rpi3bplus-dev-setup.md) for troubleshooting, custom DTS overlay, and HAL differences.
+
 ### Display wiring (SPI0)
 
 | ST7789V pin | RPi GPIO | Header pin |
@@ -104,6 +106,8 @@ HAL calls to `sys_backlight()` succeed silently (no-op). All other flint tools b
 config                      # pi-gen build variables
 build.sh                    # local build entrypoint (wraps pi-gen + dtc)
 Dockerfile                  # reproducible build environment
+docs/
+  rpi3bplus-dev-setup.md    # wiring guide, DTS overlay, HAL differences
 overlays/
   rpi3b-flint-overlay.dts   # custom DTS: SPI display, GPIO27 RST, no M5IOE1
 stage-flint/                # pi-gen stage: installs flint on top of the stage2 CPZero base
