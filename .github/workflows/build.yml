@@ -28,10 +28,15 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          # qemu-user installs /usr/bin/qemu-aarch64 (required by pi-gen host check)
-          # qemu-user-static + binfmt-support register it in binfmt_misc
           sudo apt-get install -y device-tree-compiler qemu-user qemu-user-static binfmt-support
-          sudo update-binfmts --enable qemu-aarch64 || true
+
+      - name: Register qemu-aarch64 binfmt (kernel-level, persistent for containers)
+        run: |
+          # This registers qemu-aarch64-static with the F (fix-binary) flag so
+          # Docker containers can transparently execute arm64 ELF binaries.
+          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes --credential yes
+          # Verify registration landed in the kernel
+          cat /proc/sys/fs/binfmt_misc/qemu-aarch64 | grep "flags:" || true
 
       - name: Compile DTS overlay
         run: |
