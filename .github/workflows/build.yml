@@ -59,6 +59,15 @@ jobs:
       - name: Copy custom stage into pi-gen
         run: cp -r stage-flint pi-gen/stage-flint
 
+      - name: Copy compiled overlay into pi-gen
+        # stage-flint/01-run.sh reads the .dtbo from "${STAGE_DIR}/../overlays/",
+        # i.e. pi-gen/overlays/ once stage-flint is copied inside pi-gen. Without
+        # this the cp in 01-run.sh fails (set -e), aborting stage-flint before
+        # config.txt/SSH/wifi.txt are ever written.
+        run: |
+          mkdir -p pi-gen/overlays
+          cp overlays/rpi3b-flint-overlay.dtbo pi-gen/overlays/
+
       - name: Skip fork's private CPZero app installers
         # stage2/05-cardputerzero/03-run.sh pulls Recorder/CameraApp/FactoryTest/
         # Compass from private CardputerZero repos (needs APP_RELEASES_TOKEN we

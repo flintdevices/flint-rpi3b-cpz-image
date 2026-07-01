@@ -55,6 +55,15 @@ if [ -f "${PIGEN_DIR}/stage2/05-cardputerzero/03-run.sh" ]; then
     echo "==> Disabled fork's private CPZero app installer"
 fi
 
+# stage-flint/01-run.sh reads the compiled overlay from "${STAGE_DIR}/../overlays/",
+# i.e. pi-gen/overlays/ once stage-flint is copied inside pi-gen — refresh it on
+# every run since dtc recompiles the .dtbo above. Without this the cp in
+# 01-run.sh fails (set -e), aborting stage-flint before config.txt/SSH/wifi.txt
+# are ever written.
+mkdir -p "${PIGEN_DIR}/overlays"
+cp "${OVERLAYS_SRC}/rpi3b-flint-overlay.dtbo" "${PIGEN_DIR}/overlays/"
+echo "==> Copied compiled overlay into pi-gen"
+
 # ── 4. Run pi-gen build (Docker) ─────────────────────────────────────────────
 echo "==> Starting pi-gen build (this takes ~30–45 minutes)"
 cd "${PIGEN_DIR}"

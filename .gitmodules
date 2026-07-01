@@ -2,3 +2,4 @@
 	path = pi-gen
 	url = git@github.com:CardputerZero/pi-gen.git
 	branch = arm64
+	ignore = dirty
