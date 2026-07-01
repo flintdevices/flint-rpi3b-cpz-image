@@ -111,9 +111,11 @@ docs/
 overlays/
   rpi3b-flint-overlay.dts   # custom DTS: SPI display, GPIO27 RST, no M5IOE1
 stage-flint/                # pi-gen stage: installs flint on top of the stage2 CPZero base
-  00-packages               # apt package list
-  01-run.sh                 # RPi 3B+ display overlay, config.txt, SSH, Wi-Fi placeholder
-  02-run.sh                 # install flint .deb (its postinst registers flint with APPLaunch)
+  00-flint/                 # pi-gen sub-stage (must be a subdir, not loose files at
+                            #   stage-flint/ top level, or pi-gen's stage runner never executes it)
+    00-packages             # apt package list
+    01-run.sh               # RPi 3B+ display overlay, config.txt, SSH, Wi-Fi placeholder
+    02-run.sh               # install flint .deb (its postinst registers flint with APPLaunch)
   prerun.sh / EXPORT_IMAGE  # seed rootfs from stage2; export the flint image
 pi-gen/                     # submodule: CardputerZero/pi-gen (arm64 branch)
                             #   stage2/05-cardputerzero installs APPLaunch + HW overlays;

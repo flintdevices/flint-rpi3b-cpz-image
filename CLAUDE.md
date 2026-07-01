@@ -33,6 +33,47 @@ CI (`.github/workflows/build.yml`) runs the equivalent build natively on an `ubu
 runner (arm64, no qemu) on tag pushes (`v*`) or manual `workflow_dispatch`, and publishes a
 GitHub Release for tag builds.
 
+### Local builds on a non-arm64 host are much slower than "~30–45 min"
+
+That estimate is native-speed (it's what CI gets on its arm64 runner). `build.sh` on an x86_64
+host runs pi-gen inside Docker under QEMU user-mode emulation (`build-docker.sh`), which emulates
+every instruction for `stage0`–`stage2` (debootstrap + all `apt-get install`s) — expect **1–2+
+hours**, not 30–45 min. The final `stage-flint` + image export step runs at native speed (it's
+mostly `rsync`/`parted`/`zerofree`/`xz` on the host, not inside the emulated chroot), so it doesn't
+add much on top.
+
+`build-docker.sh` names its container `pigen_work` and **refuses to start if one already exists**
+unless `CONTINUE=1` is set — this determines whether a re-run repeats the full emulated bootstrap
+or reuses it:
+
+- **`docker rm -v pigen_work` then `./build.sh`** (fresh): forces a full re-bootstrap from
+  `stage0`, ~1–2+ hours again. Needed when the pi-gen submodule itself was updated, `config`
+  changed in a way that affects `stage0`–`stage2`, or the previous container's rootfs is suspect
+  (e.g. it died mid-`dpkg` from the qemu bug below and may be in a half-configured state).
+- **`CONTINUE=1 ./build.sh`** (resume): reuses the existing `pigen_work` container's volumes via
+  `--volumes-from` — `stage0`–`stage2` rootfs and its installed packages are already there, so
+  `apt-get`/`dpkg` mostly just confirm and skip. This is the one to use when iterating on
+  `stage-flint/` only (overlay tweaks, `FLINT_DEB_URL`, `wifi.txt` service, etc.) after a build
+  that got at least through `stage2` — turns a 1–2h rebuild into a few minutes.
+
+### Known qemu-user-static bug on older hosts (e.g. Ubuntu 20.04 Focal)
+
+If a fresh emulated build fails during `stage0` debootstrap with `dpkg: error processing package
+systemd ... Failed to take /etc/passwd lock: Invalid argument`, it's not a bug in this repo — it's
+`qemu-aarch64-static` being too old to correctly emulate the `fcntl`/OFD-lock syscall that modern
+systemd's postinst relies on (e.g. Ubuntu 20.04 ships QEMU 4.2 from 2020, with no newer version in
+its apt repos). Fix by registering a modern static QEMU build system-wide instead of relying on the
+host's package:
+```bash
+docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+```
+This overwrites the kernel's `binfmt_misc` handlers with ones pinned (`F` flag) to the binaries
+bundled in that image, independent of whatever `qemu-user-static` apt package is installed. Verify
+with `cat /proc/sys/fs/binfmt_misc/qemu-aarch64` (should show `interpreter
+/usr/bin/qemu-aarch64-static`). Then remove the container that died mid-bootstrap
+(`docker rm -v pigen_work`) and start fresh — don't `CONTINUE=1` off a rootfs that failed inside
+`dpkg`, it may be half-configured.
+
 ## Architecture: two build layers
 
 **`pi-gen/` is a git submodule** (`CardputerZero/pi-gen`, `arm64` branch — see `.gitmodules`).
@@ -51,19 +92,50 @@ It contains the upstream stages that build the CardputerZero base OS:
 **`stage-flint/` (this repo, top-level) is pi-gen's final stage**, appended to `STAGE_LIST` in
 `config`. Since pi-gen only looks for stages inside its own directory, `build.sh`/CI **copy**
 `stage-flint/` into `pi-gen/stage-flint/` at build time (a symlink won't survive being resolved
-inside the Docker container, per the comment in `build.sh`). Its scripts:
+inside the Docker container, per the comment in `build.sh`).
 
-- `00-packages`: apt packages needed by flint at runtime (pygame/SDL2, PIL, i2c-tools, etc).
-- `01-run.sh`: installs the compiled `rpi3b-flint-overlay.dtbo`, rewrites `config.txt` (removes
-  CardputerZero's M5IOE1-era dtparams, appends the RPi-3B+-specific block), enables SSH, drops a
-  `wifi.txt` placeholder on the boot partition plus a first-boot systemd service
+**Critical structural rule, learned the hard way**: pi-gen's `run_stage` only executes numbered
+scripts (`00-packages`, `01-run.sh`, etc.) that live inside a **sub-stage subdirectory** of the
+stage — it globs `"${STAGE_DIR}"/*` and only recurses into entries that are directories (see
+`pi-gen/build.sh`'s `run_stage`/`run_sub_stage`). Every upstream stage follows this
+(`stage2/01-sys-tweaks/00-packages`, `stage2/05-cardputerzero/01-run.sh`, etc. — the numbered
+files always sit one level inside a named subdirectory, never loose at the stage's own top level).
+`stage-flint/00-flint/` is that sub-stage directory here — **do not** put `00-packages`/`NN-run.sh`
+directly under `stage-flint/`. `prerun.sh` and `EXPORT_IMAGE` *do* belong at the stage top level
+(that matches every upstream stage too).
+
+This bit the project for a while: the scripts originally sat directly under `stage-flint/`
+(`stage-flint/00-packages`, `stage-flint/01-run.sh`, `stage-flint/02-run.sh`). pi-gen's stage
+runner silently skipped all of them — no error, no log line, `run_stage` just found no
+subdirectories to recurse into (only `stage-flint/files/`, which has no numbered scripts of its
+own) and moved on. The build still completed and produced a `.img.xz` that looked entirely
+plausible (right size, right filename), but it was byte-for-byte whatever `stage2` exported: no
+overlay, no `config.txt` patch, no SSH sentinel, no `wifi.txt`, no flint `.deb` — i.e. every
+previous theory about this being an overlay-copy or download problem was only partially right;
+the scripts responsible were never invoked in the first place. Confirmed by grepping a full build
+log for `stage-flint/00-packages`/`01-run.sh`/`02-run.sh` and finding zero hits, and by the
+resulting image's `dpkg -l` having `applaunch` (installed in `stage2`) but no `flint` package at
+all. If you ever restructure `stage-flint/`, verify with a build log that
+`Begin /pi-gen/stage-flint/00-flint/01-run.sh` (or equivalent) actually appears — `Begin
+/pi-gen/stage-flint` followed immediately by `Begin/End .../files` with nothing in between means
+the scripts aren't being picked up.
+
+- `00-flint/00-packages`: apt packages needed by flint at runtime (pygame/SDL2, PIL, i2c-tools, etc).
+- `00-flint/01-run.sh`: installs the compiled `rpi3b-flint-overlay.dtbo`, rewrites `config.txt`
+  (removes CardputerZero's M5IOE1-era dtparams, appends the RPi-3B+-specific block), enables SSH,
+  drops a `wifi.txt` placeholder on the boot partition plus a first-boot systemd service
   (`flint-wifi-setup.service` / `.sh`) that reads it, writes `wpa_supplicant.conf`, brings up
   Wi-Fi once, then disables itself and scrubs the credentials from `wifi.txt`.
-- `02-run.sh`: downloads flint's `.deb` (URL from `FLINT_DEB_URL`, default
+- `00-flint/02-run.sh`: downloads flint's `.deb` (URL from `FLINT_DEB_URL`, default
   `releases.flintdevices.dev/flint_latest_arm64.deb`) and `dpkg -i`s it in the chroot; the deb's
   postinst is what wires flint into APPLaunch.
-- `prerun.sh` / `EXPORT_IMAGE`: standard pi-gen plumbing (seed rootfs from the previous stage's
-  output; export naming for `USE_QEMU`).
+- `prerun.sh` / `EXPORT_IMAGE` (at `stage-flint/` top level): standard pi-gen plumbing (seed
+  rootfs from the previous stage's output; export naming for `USE_QEMU`).
+- Scripts inside `00-flint/` still reference `${STAGE_DIR}` (e.g. `${STAGE_DIR}/../overlays/...`,
+  `${STAGE_DIR}/files/...`) rather than a path relative to their own subdirectory — this works
+  because pi-gen's `run_sub_stage` only `pushd`s into the sub-stage directory, it does not
+  reassign the `STAGE_DIR` env var, which keeps pointing at `stage-flint` itself regardless of
+  which sub-stage subdirectory the currently-executing script lives in.
 
 **Two independent copies of the pi-gen `config`** exist and must be kept in sync manually: the
 top-level `config` file (used by `build.sh`) and an inline heredoc inside
@@ -78,7 +150,7 @@ ST7789V display directly to GPIO25 (DC) / GPIO27 (RST) / SPI0 CS0, with no depen
 M5IOE1 I/O expander used by the real CardputerZero (no expander is present on a plain RPi 3B+).
 `build.sh` compiles this `.dts` → `.dtbo` locally with `dtc` (falling back to the `Dockerfile` in
 this repo, a throwaway Debian image with `device-tree-compiler`, if `dtc` isn't installed); CI
-always compiles with `dtc` directly since the runner is native arm64. `stage-flint/01-run.sh`
+always compiles with `dtc` directly since the runner is native arm64. `stage-flint/00-flint/01-run.sh`
 copies the compiled `.dtbo` into the image and points `config.txt` at it.
 
 Backlight is hardwired to 3.3V (always on) — there is no PWM circuit, so HAL calls like
@@ -98,16 +170,16 @@ assuming a HAL call should behave identically to the real device.
 - `FLINT_DEB_URL` is the one supported override point for pointing a build at a different flint
   build; it must be exported before invoking pi-gen (both `build.sh` and the CI workflow do this)
   since pi-gen stage scripts only see explicitly exported env vars inside the Docker/chroot build.
-- **`stage-flint/01-run.sh` reads the compiled overlay via `${STAGE_DIR}/../overlays/...`**,
-  which resolves to `pi-gen/overlays/` once `stage-flint` is copied inside `pi-gen` (see below).
-  `build.sh` and the CI workflow must copy the freshly-compiled `.dtbo` into `pi-gen/overlays/`
-  *every run* (dtc recompiles it each time) — **both currently do this** via an explicit
+- **`stage-flint/00-flint/01-run.sh` reads the compiled overlay via `${STAGE_DIR}/../overlays/...`**,
+  which resolves to `pi-gen/overlays/` once `stage-flint` is copied inside `pi-gen` (see the
+  "Critical structural rule" note above — this bug was independent of, and masked by, the missing
+  sub-stage directory: the `cp` here was never even reached until that was fixed, since pi-gen
+  wasn't invoking `01-run.sh` at all). `build.sh` and the CI workflow copy the freshly-compiled
+  `.dtbo` into `pi-gen/overlays/` *every run* (dtc recompiles it each time) via an explicit
   `mkdir -p pi-gen/overlays && cp overlays/rpi3b-flint-overlay.dtbo pi-gen/overlays/` step placed
-  right after "copy stage-flint into pi-gen". This was missing for the entire lifetime of this
-  repo until it was added — without it, `01-run.sh`'s `cp` fails and, because the script runs
-  under `set -e`, the *whole* stage-flint stage aborts silently-ish, meaning `config.txt` patching
-  SSH-enable, and `wifi.txt` generation (all later in the same script) never run, and pi-gen never
-  gets to `02-run.sh` (flint `.deb` install) either. A build that stops here still produces a
-  `.img.xz` (from a different, already-exported stage2 artifact) that looks plausible but has no
-  flint on it — see the README "Troubleshooting" section. If you ever touch this copy step, keep
+  right after "copy stage-flint into pi-gen". Without it, `01-run.sh`'s `cp` fails and, because the
+  script runs under `set -e`, the *whole* stage-flint sub-stage aborts partway through, meaning
+  whatever runs after that `cp` in the same script (`config.txt` patching, SSH-enable, `wifi.txt`
+  generation) never executes, and pi-gen never gets to `02-run.sh` (flint `.deb` install) either.
+  If you ever touch this copy step, keep
   `build.sh` and `.github/workflows/build.yml` in sync, same as the `config` duplication above.
