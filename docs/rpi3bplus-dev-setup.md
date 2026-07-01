@@ -274,6 +274,20 @@ brightness change. All other tools behave identically on both targets.
 
 ## Troubleshooting
 
+### No HDMI video at all / board appears to boot-loop
+
+Mount the boot partition (`bootfs`) on another machine and check `config.txt` for a `kernel=`
+line (it should not be there). Older builds of this image could ship `kernel=u-boot.bin`, left
+over from `pi-gen`'s upstream CardputerZero stage — that U-Boot binary is built for the real
+CardputerZero's Compute Module (BCM2835/CM0), not this board's BCM2837, and the board resets
+before Linux (or any video output) ever starts. If you see this, you have a stale image built
+before this was fixed — rebuild from a current checkout (`stage-flint/00-flint/01-run.sh` strips
+`kernel=u-boot.bin` and the matching `u-boot*.bin` files). A monitor on HDMI is the fastest way to
+tell this apart from a display-wiring problem: with the bad `kernel=` line you'll see either
+nothing at all or a U-Boot banner mentioning `raspberrypi,0-compute-module`/reset messages; with
+it fixed, HDMI shows the normal kernel boot/login console (useful for debugging even after this
+fix, if the SPI panel itself isn't showing anything).
+
 ### Display shows nothing after boot
 
 1. Double-check wiring against the table above, especially DC (GPIO25) and CS (GPIO8).

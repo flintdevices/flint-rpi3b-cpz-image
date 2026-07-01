@@ -122,10 +122,12 @@ the scripts aren't being picked up.
 
 - `00-flint/00-packages`: apt packages needed by flint at runtime (pygame/SDL2, PIL, i2c-tools, etc).
 - `00-flint/01-run.sh`: installs the compiled `rpi3b-flint-overlay.dtbo`, rewrites `config.txt`
-  (removes CardputerZero's M5IOE1-era dtparams, appends the RPi-3B+-specific block), enables SSH,
-  drops a `wifi.txt` placeholder on the boot partition plus a first-boot systemd service
-  (`flint-wifi-setup.service` / `.sh`) that reads it, writes `wpa_supplicant.conf`, brings up
-  Wi-Fi once, then disables itself and scrubs the credentials from `wifi.txt`.
+  (removes CardputerZero's M5IOE1-era dtparams, strips the CM0 U-Boot chainload and its
+  hardware-specific overlays — see below — appends the RPi-3B+-specific block), cleans
+  `cmdline.txt`, enables SSH, drops a `wifi.txt` placeholder on the boot partition plus a
+  first-boot systemd service (`flint-wifi-setup.service` / `.sh`) that reads it, writes
+  `wpa_supplicant.conf`, brings up Wi-Fi once, then disables itself and scrubs the credentials
+  from `wifi.txt`.
 - `00-flint/02-run.sh`: downloads flint's `.deb` (URL from `FLINT_DEB_URL`, default
   `releases.flintdevices.dev/flint_latest_arm64.deb`) and `dpkg -i`s it in the chroot; the deb's
   postinst is what wires flint into APPLaunch.
@@ -136,6 +138,30 @@ the scripts aren't being picked up.
   because pi-gen's `run_sub_stage` only `pushd`s into the sub-stage directory, it does not
   reassign the `STAGE_DIR` env var, which keeps pointing at `stage-flint` itself regardless of
   which sub-stage subdirectory the currently-executing script lives in.
+
+**`stage2/05-cardputerzero/02-run.sh` installs a U-Boot built for the wrong SoC — must be
+stripped, not just left alongside our overlay.** That script downloads U-Boot firmware from
+`CardputerZero/u-boot` releases (`uboot-firmware-m5stack.tar.gz`) and inserts `kernel=u-boot.bin`
+as the *first line* of `config.txt`, so the RPi firmware chain-loads U-Boot instead of booting
+Linux directly. That U-Boot is built for the real CardputerZero's Compute Module (`strings
+u-boot.bin` shows `raspberrypi,0-compute-module`, i.e. BCM2835/CM0) — on a plain RPi 3B+
+(BCM2837) it's the wrong SoC, and the board resets before Linux (or any video output, HDMI
+included) ever starts. This shipped in the first image actually built after the sub-stage fix
+above and produced exactly that symptom on real hardware: no HDMI video, apparent boot loop. Fix
+(now in `00-flint/01-run.sh`): `sed -i '/^kernel=u-boot/d' config.txt` and delete
+`u-boot.bin`/`u-boot-nolog.bin` from the boot partition so firmware falls back to its normal
+`kernel8.img` auto-detect path. The same upstream script also adds `dtoverlay=` lines for
+CardputerZero-v3 hardware this board lacks (`bq27220_v3` battery gauge, `spk-gpio24-high-overlay`
+speaker, `bmi270_overlay` IMU, `camera-gpio16-high-overlay`, `gpio-ir`/`gpio-ir-tx`) — strip these
+too, since even if they don't hard-fail boot they claim GPIOs/buses that may collide with
+`rpi3b-flint-overlay`. It also appends `fbcon=map:off` and `quiet` to `cmdline.txt`, which blanks
+the kernel text console on every framebuffer (including HDMI) — strip both so HDMI shows a normal
+boot/login console, which is also your best debugging tool if a future image doesn't boot: **it
+will show U-Boot's `raspberrypi,0-compute-module` banner or a reset loop directly, instead of a
+dark screen that looks identical to "no signal."** Don't assume upstream's `05-cardputerzero`
+script is safe to leave unexamined just because it isn't the private-app installer that's already
+disabled — audit anything it writes to `config.txt`/`cmdline.txt` against what actual RPi 3B+
+hardware has.
 
 **Two independent copies of the pi-gen `config`** exist and must be kept in sync manually: the
 top-level `config` file (used by `build.sh`) and an inline heredoc inside
