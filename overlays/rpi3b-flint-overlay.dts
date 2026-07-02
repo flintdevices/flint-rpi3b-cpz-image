@@ -43,6 +43,8 @@
                 compatible = "sitronix,st7789v_m5stack";
                 reg = <0>;                      // CS0 = GPIO8
                 spi-max-frequency = <50000000>;
+                buswidth = <8>;                 // required by the fbtft-based driver;
+                                                 // missing this fails probe with -EINVAL
                 dc-gpios = <&gpio 25 0>;        // DC = GPIO25, active-high
                 reset-gpios = <&gpio 27 1>;     // RST = GPIO27, active-low
                 width = <170>;

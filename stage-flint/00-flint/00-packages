@@ -9,3 +9,6 @@ libsdl2-ttf-dev
 libasound2-dev
 device-tree-compiler
 i2c-tools
+# required by APPLaunch itself (not just LaunchWizard) — without it the
+# dynamic linker fails to exec the binary at all (libinput.so.10 not found)
+libinput10

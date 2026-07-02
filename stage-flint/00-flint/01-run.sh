@@ -81,7 +81,9 @@ cat > "${ROOTFS_DIR}/boot/firmware/wifi.txt" << 'EOF'
 # WIFI_PASSWORD=YourPassword
 EOF
 
-# Install a first-boot service that reads wifi.txt and writes wpa_supplicant
+# Install a first-boot service that reads wifi.txt and configures Wi-Fi via
+# NetworkManager (nmcli) — see files/flint-wifi-setup.sh for why not
+# wpa_supplicant/dhclient directly.
 install -m 644 "${STAGE_DIR}/files/flint-wifi-setup.service" \
     "${ROOTFS_DIR}/etc/systemd/system/flint-wifi-setup.service"
 
@@ -90,4 +92,22 @@ install -m 755 "${STAGE_DIR}/files/flint-wifi-setup.sh" \
 
 on_chroot << 'CHROOT'
 systemctl enable flint-wifi-setup.service
+CHROOT
+
+# ── 5. APPLaunch autostart ────────────────────────────────────────────────────
+# stage2/05-cardputerzero enables LaunchWizard.service (WantedBy=multi-user.target)
+# to do first-boot setup, including presumably enabling APPLaunch for whichever
+# user ends up being created. On this lite/CLI image LaunchWizard can't work at
+# all: it (and APPLaunch itself) dynamically link libinput.so.10, which only
+# desktop-stack images pull in — without it the exec fails outright (dynamic
+# linker error, not a graceful skip), and LaunchWizard.service crash-loops
+# forever (RestartSec=1, no StartLimitInterval) instead of ever reaching
+# whatever it does to enable APPLaunch for the interactively-created user.
+# Disable it and enable APPLaunch globally instead — `--global` applies to
+# every current/future user without needing to know the interactive first-boot
+# username at build time, and starts on that user's first login (console or
+# SSH) without needing loginctl linger.
+on_chroot << 'CHROOT'
+systemctl disable LaunchWizard.service
+systemctl --global enable APPLaunch.service
 CHROOT

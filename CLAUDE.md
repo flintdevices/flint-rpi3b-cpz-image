@@ -125,9 +125,9 @@ the scripts aren't being picked up.
   (removes CardputerZero's M5IOE1-era dtparams, strips the CM0 U-Boot chainload and its
   hardware-specific overlays — see below — appends the RPi-3B+-specific block), cleans
   `cmdline.txt`, enables SSH, drops a `wifi.txt` placeholder on the boot partition plus a
-  first-boot systemd service (`flint-wifi-setup.service` / `.sh`) that reads it, writes
-  `wpa_supplicant.conf`, brings up Wi-Fi once, then disables itself and scrubs the credentials
-  from `wifi.txt`.
+  first-boot systemd service (`flint-wifi-setup.service` / `.sh`) that reads it, brings up Wi-Fi
+  via NetworkManager (`nmcli`) once, then disables itself and scrubs the credentials from
+  `wifi.txt`.
 - `00-flint/02-run.sh`: downloads flint's `.deb` (URL from `FLINT_DEB_URL`, default
   `releases.flintdevices.dev/flint_latest_arm64.deb`) and `dpkg -i`s it in the chroot; the deb's
   postinst is what wires flint into APPLaunch.
@@ -178,6 +178,68 @@ M5IOE1 I/O expander used by the real CardputerZero (no expander is present on a 
 this repo, a throwaway Debian image with `device-tree-compiler`, if `dtc` isn't installed); CI
 always compiles with `dtc` directly since the runner is native arm64. `stage-flint/00-flint/01-run.sh`
 copies the compiled `.dtbo` into the image and points `config.txt` at it.
+
+The `st7789v@0` node **must set `buswidth = <8>;`** — without it, the `fb_st7789v_m5stack`
+fbtft-based driver (cloned/built from `github.com/m5stack/m5stack-linux-dtoverlays` by
+`stage2/05-cardputerzero/01-run.sh`) fails to probe with `error -EINVAL: buswidth is not set`, so
+`/dev/fb0` never appears — flint/APPLaunch then fail with "cannot open framebuffer device" even
+though the overlay otherwise loads and the SPI wiring is correct. This can't be caught by mounting
+a built image (it's a runtime kernel probe failure, not a missing file) — it only showed up
+testing on real hardware. If you touch the overlay again, boot it for real and check `dmesg | grep
+st7789` for the `graphics fb0: ... frame buffer` success line, not just that the `.dtbo` exists.
+
+**APPLaunch (and the `LaunchWizard` service meant to bootstrap it) hard-depend on
+`libinput.so.10`, which this lite/CLI image doesn't otherwise install.** Without
+`libinput10` in `stage-flint/00-flint/00-packages`, both binaries fail at the dynamic-linker
+level (`ldd` shows `libinput.so.10 => not found`) — systemd reports this as a bare `status=127`/
+`203/EXEC` with no application-level error message, so it looks like a missing binary or a
+generic crash rather than a missing shared library. `LaunchWizard.service` additionally has no
+`StartLimitInterval` set, so once it can't exec, it restarts every second forever — treat a
+service stuck in `activating (auto-restart)` with an `EXEC`/`127` exit as "missing shared library,
+check `ldd`" before assuming anything else.
+
+`LaunchWizard.service` itself is not just broken by the missing library — it's fundamentally
+built for the real CardputerZero's graphical first-boot flow (autologin into an `rpd-labwc`
+Wayland session per the fork's own design notes in `pi-gen/docs/CARDPUTERZERO-IMAGE-DESIGN.md`),
+which this lite/no-desktop image (`SKIP_STAGE3/4/5=1`) never installs the rest of regardless of
+`libinput10`. Its real job — presumably enabling `APPLaunch.service` for whichever user gets
+created by the interactive first-boot username/password prompt — never happens, since it
+crash-loops before getting there. `01-run.sh` now disables `LaunchWizard.service` outright and
+runs `systemctl --global enable APPLaunch.service` instead: `--global` enables the unit for every
+current *and future* user without needing to know the interactive first-boot username at build
+time (it isn't known — this image doesn't preseed `FIRST_USER_NAME` into a real account the way
+`config`'s `FIRST_USER_NAME=flint` might suggest; in practice the standard Raspberry Pi OS Lite
+console wizard runs and the user picks whatever username they want, observed as `pi` in one real
+test even though `config` sets `flint`). A global-enabled user unit starts on that user's first
+login (console *or* SSH) without needing `loginctl enable-linger` — only add linger if the goal
+becomes "APPLaunch starts with no login at all."
+
+**Wi-Fi comes up soft-blocked by design, not by bug.** `stage2/05-cardputerzero/01-run.sh` sets
+`options rfkill default_state=0` in `/etc/modprobe.d/rfkill_default.conf`, so `wlan0` (and `bt`)
+enumerate but sit `rfkill`-blocked (`soft=1` in `/sys/class/rfkill/*/soft`) and `state DOWN` in `ip
+link` until something unblocks them. `stage-flint/files/flint-wifi-setup.sh` only tries to bring
+Wi-Fi up if `wifi.txt` has a real `WIFI_SSID` filled in — on the placeholder file it exits before
+touching rfkill at all. Seeing `wlan0` present-but-down with the placeholder `wifi.txt` still in
+place is expected, not a regression; only chase this further if `wifi.txt` has real credentials
+and Wi-Fi *still* doesn't come up.
+
+**This image's real network stack is NetworkManager, not wpa_supplicant/dhclient directly —
+`flint-wifi-setup.sh` originally assumed the latter and silently failed on real hardware.**
+`dhclient` doesn't exist on this Debian trixie build at all (`command not found`); manually
+starting a second `wpa_supplicant -i wlan0 -c ...` process alongside NetworkManager's own
+(`/usr/sbin/wpa_supplicant -u -s ...`, already running for `NetworkManager[…]`) even reached
+`wpa_state=COMPLETED` in isolation, but NetworkManager still reported `wlan0` as `unavailable`
+(`managed-type: 'external'`, `journalctl -u NetworkManager`) because the interface was fighting
+two supplicant instances. Separately, and *independently* of kernel rfkill — even after `rfkill
+unblock wifi` — NetworkManager has its **own** persisted software radio toggle
+(`nmcli radio wifi`, stored in `/var/lib/NetworkManager/NetworkManager.state`) that can come up
+`disabled` if NM observed the radio rfkill-blocked at an earlier boot, and unblocking rfkill later
+doesn't flip it back. Fixed `flint-wifi-setup.sh` to do both `rfkill unblock wifi` *and* `nmcli
+radio wifi on` before handing the actual connect to `nmcli device wifi connect "$SSID" password
+"$PASS"` — nmcli's connect handles associate+DHCP in one step using NM's real stack, and persists
+a connection profile so it reconnects on later boots without this script running again. If Wi-Fi
+still won't come up after a build change here, check `nmcli radio wifi` and `nmcli device status`
+before assuming it's an rfkill or credentials problem.
 
 Backlight is hardwired to 3.3V (always on) — there is no PWM circuit, so HAL calls like
 `sys_backlight()` in flint are expected to no-op on this hardware rather than fail. See the
