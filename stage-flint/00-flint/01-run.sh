@@ -111,3 +111,17 @@ on_chroot << 'CHROOT'
 systemctl disable LaunchWizard.service
 systemctl --global enable APPLaunch.service
 CHROOT
+
+# ── 6. USB keyboard for APPLaunch ─────────────────────────────────────────────
+# APPLaunch is hardcoded to the CardputerZero's TCA8418 I2C keyboard node, which
+# this board lacks. A udev rule points that exact node at any attached USB
+# keyboard as a real DEVLINK so libinput's path backend accepts it. See
+# files/99-flint-usb-keyboard.rules for the full rationale and the hotplug caveat.
+install -m 644 "${STAGE_DIR}/files/99-flint-usb-keyboard.rules" \
+    "${ROOTFS_DIR}/etc/udev/rules.d/99-flint-usb-keyboard.rules"
+
+# flint itself (launched by APPLaunch) auto-detects the TCA8418 keyboard and
+# otherwise falls back to the wrong device; point it at the USB keyboard via a
+# systemd user drop-in inherited by flint. See files/APPLaunch-flint-keyboard.conf.
+install -m 644 -D "${STAGE_DIR}/files/APPLaunch-flint-keyboard.conf" \
+    "${ROOTFS_DIR}/etc/systemd/user/APPLaunch.service.d/flint-keyboard.conf"

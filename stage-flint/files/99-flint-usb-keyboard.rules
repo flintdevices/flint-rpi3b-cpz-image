@@ -1,0 +1,20 @@
+# flint on RPi 3B+ has no TCA8418 I2C matrix keyboard (a standard USB keyboard
+# replaces it). The CardputerZero fork's APPLaunch binary is hardcoded to open
+# exactly one input node — /dev/input/by-path/platform-3f804000.i2c-event (the
+# TCA8418's evdev on the real device) — via libinput's *path* backend. On this
+# board that node never exists, so APPLaunch adds no keyboard and no keypress
+# ever reaches the launcher, even though the USB keyboard works fine at the
+# evdev level. (The APPLAUNCH_LINUX_KEYBOARD_DEVICE env var present in the binary
+# is NOT honoured for the primary keyboard in this build — verified with strace.)
+#
+# Fix: register that exact hardcoded path as a real udev DEVLINK of whatever USB
+# keyboard is attached. It must be a udev SYMLINK+= (not a plain `ln -s`): the
+# libinput path backend resolves the node through udev and rejects a filesystem
+# symlink it doesn't know as "client bug: Invalid path". cardputerzero-kbd is a
+# stable convenience alias.
+#
+# Caveat: libinput's path backend does not hotplug — APPLaunch only picks up the
+# keyboard if this devlink already exists when APPLaunch starts. Keep the keyboard
+# plugged in across boot/login; if hot-plugged afterwards, restart APPLaunch
+# (systemctl --user restart APPLaunch.service) or re-login.
+ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_KEYBOARD}=="1", SYMLINK+="input/by-path/platform-3f804000.i2c-event", SYMLINK+="input/cardputerzero-kbd"
