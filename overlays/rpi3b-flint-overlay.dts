@@ -42,16 +42,38 @@
             st7789v: st7789v@0 {
                 compatible = "sitronix,st7789v_m5stack";
                 reg = <0>;                      // CS0 = GPIO8
-                spi-max-frequency = <50000000>;
+                // 50MHz is fine on the real CardputerZero's short PCB traces;
+                // over breadboard/jumper-wire runs it causes visible SPI
+                // signal corruption (garbled/noisy regions on screen).
+                spi-max-frequency = <20000000>;
                 buswidth = <8>;                 // required by the fbtft-based driver;
                                                  // missing this fails probe with -EINVAL
                 dc-gpios = <&gpio 25 0>;        // DC = GPIO25, active-high
                 reset-gpios = <&gpio 27 1>;     // RST = GPIO27, active-low
                 width = <170>;
                 height = <320>;
-                x-offset = <0>;
-                y-offset = <35>;
-                rotation = <90>;
+                // Property names MUST match what fb_st7789v_m5stack actually reads
+                // (github.com/m5stack/m5stack-linux-dtoverlays, modules/st7789v-1.0):
+                //   * fbtft core reads "rotate", NOT "rotation". With the wrong name
+                //     var.rotate stays 0, set_var() takes case 0 (no MADCTL_MV/MX/MY),
+                //     and the panel is stuck in portrait — hence "rotation is wrong".
+                //   * for compatible "sitronix,st7789v_m5stack" the active addr-window
+                //     function is fbtft_set_addr_win(), which adds the DT props
+                //     "ram-x-offset"/"ram-y-offset". It does NOT use "x-offset"/
+                //     "y-offset", nor set_var()'s x_offset/y_offset globals (those are
+                //     dead code for this compatible — only the "minipitft13" variant's
+                //     set_addr_win consumes them). Without ram-*-offset the 170-wide
+                //     window is addressed from column 0 of the panel's 240-wide GRAM,
+                //     leaving an unwritten band that shows as RGB noise on one edge.
+                // Names/rotate match the vendor's own reference overlay for this
+                // exact 170x320 panel (st7789v_m5stack.dts: rotate=90). The vendor
+                // uses ram-y-offset=32, but this board's panel unit needed 35
+                // ((240-170)/2, the datasheet-centered value): at 32 the top 2px
+                // border was clipped off-screen and a ~3px unwritten noise band
+                // showed at the bottom. Verified on real RPi 3B+ hardware.
+                ram-x-offset = <0>;
+                ram-y-offset = <35>;
+                rotate = <90>;
                 fps = <60>;
             };
         };
