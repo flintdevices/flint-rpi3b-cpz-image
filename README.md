@@ -7,6 +7,22 @@ pre-installed and auto-started on a generic ST7789V 320×170 SPI display.
 > **CardputerZero owners:** use the [official M5Stack image](https://github.com/CardputerZero/cardputer-zero-os) instead.
 > This repo targets the RPi 3B+ as a development and standalone alternative only.
 
+## What you get
+
+This is a ready-to-flash `.img.xz` (Raspberry Pi OS Lite/trixie under the hood), not just a
+config — flashing it gives you:
+
+- **flint pre-installed and auto-started**, launched from the **APPLaunch** app launcher (the
+  same launcher the real CardputerZero uses) on the wired ST7789V display.
+- **A working login out of the box** — no interactive first-boot username/password wizard.
+  Username `flint`, password `flint` (see [Security note](#security-note)).
+- **SSH enabled by default**, reachable at `flint@flint.local` (or the device's IP) with the
+  same `flint`/`flint` credentials.
+- **Wi-Fi via a boot-partition text file** (`wifi.txt`) — fill it in before first boot and the
+  device connects on its own; no keyboard/display interaction required.
+- **A virtual on-screen-free keyboard over SSH**, for controlling APPLaunch/flint entirely from
+  a terminal when no physical USB keyboard is attached (see [Controlling flint over SSH](#controlling-flint-over-ssh-no-keyboard)).
+
 ---
 
 ## Hardware required
@@ -40,27 +56,73 @@ Backlight is always on (tied to 3.3V). No PWM circuit required.
 
 ## Download a pre-built image
 
-Download the latest `.img.xz` from [Releases](../../releases) and flash with
-[Raspberry Pi Imager](https://www.raspberrypi.com/software/) or `dd`:
+Download the latest `.img.xz` from [Releases](../../releases).
+
+### Flash
+
+**Option A — Raspberry Pi Imager (recommended):** open
+[Raspberry Pi Imager](https://www.raspberrypi.com/software/), choose "Use custom", select the
+downloaded `.img.xz` (no need to decompress it first), pick your SD card, and write. Skip the
+Imager's own OS-customisation prompt (username/password/Wi-Fi) — this image already has that
+baked in; see [First boot](#first-boot) below for how to still set Wi-Fi credentials.
+
+**Option B — `dd`:**
 
 ```bash
 xz -d flint-rpi3b-cpz-*.img.xz
 sudo dd if=flint-rpi3b-cpz-*.img of=/dev/sdX bs=4M status=progress conv=fsync
 ```
 
+Replace `/dev/sdX` with your SD card's device (check with `lsblk` first — this overwrites the
+whole device).
+
 ### First boot
 
-1. Before ejecting the SD card, mount the `bootfs` FAT partition and edit `wifi.txt`:
+1. **Wi-Fi (optional but recommended):** before ejecting the card, the FAT boot partition
+   (`bootfs`, labelled `bootfs` or mounted as `/boot/firmware` once booted) will contain a
+   `wifi.txt` placeholder. Uncomment and fill in the two lines:
 
-```
-# bootfs/wifi.txt
-WIFI_SSID=YourNetwork
-WIFI_PASSWORD=YourPassword
+   ```
+   # bootfs/wifi.txt
+   WIFI_SSID=YourNetwork
+   WIFI_PASSWORD=YourPassword
+   ```
+
+   On first boot a one-shot service reads this file, connects via NetworkManager, and then
+   erases the credentials from `wifi.txt` and disables itself — nothing to clean up manually,
+   and no Wi-Fi setup screen to click through. If it can't connect (e.g. network not up yet),
+   it retries automatically on the next boot without losing the credentials.
+
+2. Insert the card, power on the Pi, and give it a minute to boot — **flint starts
+   automatically** on the ST7789V display via APPLaunch, no login required at the display.
+
+3. **SSH is enabled by default:** `ssh flint@flint.local` (password `flint`), or
+   `ssh flint@<device-ip>` if `.local` mDNS resolution isn't available on your network.
+
+4. **No USB keyboard?** See [Controlling flint over SSH](#controlling-flint-over-ssh-no-keyboard)
+   below to drive APPLaunch/flint's on-screen input entirely from your SSH session.
+
+### Security note
+
+The image ships with a fixed `flint`/`flint` login and no first-boot password prompt, by design
+(see [What you get](#what-you-get)) — the trade-off is convenience over securing a device with a
+guessable default password. Standard practice for anything reachable on an untrusted network:
+change the password after first login (`passwd`) or add your own SSH key and disable password
+auth. Not needed for a device that stays on a trusted home/lab network only.
+
+### Controlling flint over SSH (no keyboard)
+
+If you don't have a USB keyboard wired up, the image ships a virtual keyboard so you can drive
+APPLaunch and flint from your SSH terminal:
+
+```bash
+ssh flint@flint.local
+virtual-keyboard
 ```
 
-2. SSH is enabled by default. Connect with `ssh flint@flint.local` (password: `flint`).
-3. The device boots into the **APPLaunch** launcher (same as the official CardputerZero image).
-   **Flint** appears as an app in the launcher — select it with the USB keyboard.
+Every keystroke you type is forwarded to the device as if a real USB keyboard were plugged in;
+press `Ctrl+]` to exit. The SSH login banner (MOTD) also mentions this command, so it's
+discoverable even without reading this README first.
 
 ---
 
@@ -75,7 +137,10 @@ cd flint-rpi3b-cpz-image
 # Output: deploy/flint-rpi3b-cpz-*.img.xz
 ```
 
-The build takes ~30–45 minutes. Subsequent builds are faster due to Docker layer cache.
+The build takes ~30–45 minutes on native arm64 (e.g. the CI runner). On an x86_64 host, pi-gen
+runs under QEMU user-mode emulation and it's significantly slower — expect **1–2+ hours** for a
+first/fresh build; re-runs with `CONTINUE=1 ./build.sh` reuse the previous run's rootfs and are
+much faster if you're only iterating on `stage-flint/`.
 
 To override the flint `.deb` URL:
 
