@@ -71,6 +71,10 @@ cd "${PIGEN_DIR}"
 # Export FLINT_DEB_URL so it's available inside the pi-gen Docker container
 export FLINT_DEB_URL="${FLINT_DEB_URL:-https://releases.flintdevices.dev/flint_latest_arm64.deb}"
 
+# Same reasoning for YDOTOOL_DEB_URL (see stage-flint/files/install-virtual-keyboard.sh) —
+# ydotool isn't in Debian trixie's main repo, only trixie-backports.
+export YDOTOOL_DEB_URL="${YDOTOOL_DEB_URL:-http://deb.debian.org/debian/pool/main/y/ydotool/ydotool_1.0.4-2~bpo13+1_arm64.deb}"
+
 # pi-gen reads config from the directory it's called from; point it at ours
 CONFIG_FILE="${SCRIPT_DIR}/config"
 
