@@ -241,6 +241,31 @@ a connection profile so it reconnects on later boots without this script running
 still won't come up after a build change here, check `nmcli radio wifi` and `nmcli device status`
 before assuming it's an rfkill or credentials problem.
 
+**SSH-only control (no physical keyboard) works via a virtual keyboard, not a special
+case in APPLaunch/flint.** `stage-flint/00-flint/03-run.sh` installs `ydotool`/`ydotoold`
+(downloaded as a `.deb` — not in Debian trixie's main repo, only `trixie-backports`) with
+our own system-level `ydotoold.service` (the packaged unit is user-scoped and only starts
+at login, too late to satisfy libinput's no-hotplug requirement — see the "APPLaunch...
+hard-depend on libinput.so.10" section above for that constraint). The daemon's uinput
+virtual device gets `ID_INPUT_KEYBOARD=1` from the kernel/udev the same way a physical USB
+keyboard does, so it's picked up by the *existing* `99-flint-usb-keyboard.rules` unchanged
+— no APPLaunch/flint-specific code exists for this. Run `virtual-keyboard` after SSH-ing in
+(`/usr/local/bin/virtual-keyboard`, installed by the same stage) to forward every keystroke
+from the SSH terminal to the device; Ctrl+] exits. A dynamic-MOTD script
+(`/etc/update-motd.d/99-flint-virtual-keyboard-motd`) mentions the command on every SSH
+login so a user without a keyboard isn't left guessing. The `ydotool` client resolves its
+control socket via `$YDOTOOL_SOCKET` → `$XDG_RUNTIME_DIR/.ydotool_socket` →
+`/tmp/.ydotool_socket`, and an SSH login session normally has `XDG_RUNTIME_DIR` set by
+logind — both the daemon (`--socket-path`) and `virtual-keyboard` pin
+`/tmp/.ydotool_socket` explicitly so this never depends on which env vars happen to be
+set. All install logic lives in one idempotent script,
+`stage-flint/files/install-virtual-keyboard.sh`, so an already-flashed device can be
+patched by copying it over and running `sudo bash install-virtual-keyboard.sh` without a
+full rebuild/reflash — it detects a live system via `/run/systemd/system` and applies
+immediately instead of only enabling for next boot. Full design rationale, including
+verified corrections against the original proposal, is in
+`docs/superpowers/specs/2026-07-03-virtual-keyboard-design.md`.
+
 Backlight is hardwired to 3.3V (always on) — there is no PWM circuit, so HAL calls like
 `sys_backlight()` in flint are expected to no-op on this hardware rather than fail. See the
 "Differences from the real CardputerZero" and "Differences in HAL behavior" tables in
