@@ -207,12 +207,17 @@ created by the interactive first-boot username/password prompt — never happens
 crash-loops before getting there. `01-run.sh` now disables `LaunchWizard.service` outright and
 runs `systemctl --global enable APPLaunch.service` instead: `--global` enables the unit for every
 current *and future* user without needing to know the interactive first-boot username at build
-time (it isn't known — this image doesn't preseed `FIRST_USER_NAME` into a real account the way
-`config`'s `FIRST_USER_NAME=flint` might suggest; in practice the standard Raspberry Pi OS Lite
-console wizard runs and the user picks whatever username they want, observed as `pi` in one real
-test even though `config` sets `flint`). A global-enabled user unit starts on that user's first
-login (console *or* SSH) without needing `loginctl enable-linger` — only add linger if the goal
-becomes "APPLaunch starts with no login at all."
+time — this used to not be knowable at build time, because pi-gen's `export-image/01-user-rename`
+stage runs an interactive first-boot `rename-user -f -s` wizard by default, which overrides
+`config`'s `FIRST_USER_NAME=flint`/`FIRST_USER_PASS=flint` with whatever the person at the console
+types in (observed as `pi` in one real test even though `config` set `flint`). `config` and the CI
+workflow's heredoc now both set `DISABLE_FIRST_BOOT_USER_RENAME=1`, which skips that wizard
+(`export-image/01-user-rename/01-run.sh` just removes `piwiz.desktop` instead of running
+`rename-user`) so the build-time `flint`/`flint` account is what's actually on the image — the
+`--global enable APPLaunch.service` approach above still works fine with a known username, it just
+no longer has to. A global-enabled user unit starts on that user's first login (console *or* SSH)
+without needing `loginctl enable-linger` — only add linger if the goal becomes "APPLaunch starts
+with no login at all."
 
 **Wi-Fi comes up soft-blocked by design, not by bug.** `stage2/05-cardputerzero/01-run.sh` sets
 `options rfkill default_state=0` in `/etc/modprobe.d/rfkill_default.conf`, so `wlan0` (and `bt`)
@@ -240,6 +245,21 @@ radio wifi on` before handing the actual connect to `nmcli device wifi connect "
 a connection profile so it reconnects on later boots without this script running again. If Wi-Fi
 still won't come up after a build change here, check `nmcli radio wifi` and `nmcli device status`
 before assuming it's an rfkill or credentials problem.
+
+**That fix still wasn't enough for automatic first-boot connection: every `nmcli`/`rfkill` call
+in the script was suffixed `|| true`, and it unconditionally scrubbed `WIFI_SSID`/`WIFI_PASSWORD`
+from `wifi.txt` and disabled `flint-wifi-setup.service` regardless of whether the connect actually
+succeeded.** `flint-wifi-setup.service` also had no ordering dependency on `NetworkManager.service`
+— only `After=network-pre.target`, `Before=network.target wpa_supplicant.service` — so on a fresh
+boot it could run its `nmcli` calls before NetworkManager was even up, fail every one of them
+silently, and still burn its one shot at `wifi.txt` (credentials wiped, service disabled) with no
+way to retry. Fixed by adding `After=NetworkManager.service`/`Wants=NetworkManager.service` to the
+unit, having the script poll `nmcli -t -f DEVICE,STATE device status` for `wlan0` to leave
+`unavailable` before attempting to connect, retrying `nmcli device wifi connect` a few times, and
+only scrubbing credentials / disabling the service once a connect attempt actually returns success
+— on failure it `exit 1`s and leaves both the service enabled and the credentials in `wifi.txt`, so
+`ConditionPathExists=/boot/firmware/wifi.txt` lets it retry on the next boot instead of only ever
+getting one (possibly-too-early) attempt.
 
 **SSH-only control (no physical keyboard) works via a virtual keyboard, not a special
 case in APPLaunch/flint.** `stage-flint/00-flint/03-run.sh` installs `ydotool`/`ydotoold`

@@ -1,6 +1,7 @@
 [Unit]
 Description=flint first-boot Wi-Fi configuration
-After=network-pre.target
+After=network-pre.target NetworkManager.service
+Wants=NetworkManager.service
 Before=network.target wpa_supplicant.service
 ConditionPathExists=/boot/firmware/wifi.txt
 
