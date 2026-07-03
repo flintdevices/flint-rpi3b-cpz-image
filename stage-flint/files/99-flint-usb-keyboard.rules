@@ -17,4 +17,10 @@
 # keyboard if this devlink already exists when APPLaunch starts. Keep the keyboard
 # plugged in across boot/login; if hot-plugged afterwards, restart APPLaunch
 # (systemctl --user restart APPLaunch.service) or re-login.
-ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_KEYBOARD}=="1", SYMLINK+="input/by-path/platform-3f804000.i2c-event", SYMLINK+="input/cardputerzero-kbd"
+#
+# MODE="0666": an SSH-logged-in user doesn't reliably get the console "uaccess" ACL
+# that grants input-device read access to a locally logged-in seat user (that's a
+# logind seat mechanism, not guaranteed for SSH sessions). Left world-readable rather
+# than gated behind group membership — acceptable because SSH access to this box
+# already implies full shell control, so this adds no new attack surface.
+ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_KEYBOARD}=="1", SYMLINK+="input/by-path/platform-3f804000.i2c-event", SYMLINK+="input/cardputerzero-kbd", MODE="0666"
