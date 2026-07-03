@@ -256,7 +256,38 @@ git commit -m "feat: add virtual-keyboard SSH keystroke forwarding script"
 
 ---
 
-### Task 4: `install-virtual-keyboard.sh` — single-source-of-truth installer
+### Task 4: MOTD notice on SSH login
+
+**Files:**
+- Create: `stage-flint/files/99-flint-virtual-keyboard-motd`
+
+Raspberry Pi OS ships dynamic MOTD via `/etc/update-motd.d/` (`run-parts`, driven by
+`pam_motd` in `/etc/pam.d/sshd`) — a script dropped there prints as part of every SSH
+login banner, no other wiring needed.
+
+- [ ] **Step 1: Write the script**
+
+```sh
+#!/bin/sh
+echo
+echo "No physical keyboard? Run 'virtual-keyboard' to control this device from this SSH session (Ctrl+] to exit)."
+```
+
+- [ ] **Step 2: Verify syntax**
+
+Run: `sh -n stage-flint/files/99-flint-virtual-keyboard-motd`
+Expected: no output, exit code 0.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add stage-flint/files/99-flint-virtual-keyboard-motd
+git commit -m "feat: mention virtual-keyboard in the SSH login MOTD"
+```
+
+---
+
+### Task 5: `install-virtual-keyboard.sh` — single-source-of-truth installer
 
 **Files:**
 - Create: `stage-flint/files/install-virtual-keyboard.sh`
@@ -279,7 +310,8 @@ feature, without a full rebuild/reflash.
 #
 # Usage: sudo bash install-virtual-keyboard.sh [path-to-stage-flint-files-dir]
 # If no path is given, assumes this script's own directory also contains
-# ydotoold.service, virtual-keyboard, and 99-flint-usb-keyboard.rules.
+# ydotoold.service, virtual-keyboard, 99-flint-usb-keyboard.rules, and
+# 99-flint-virtual-keyboard-motd.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FILES_DIR="${1:-${SCRIPT_DIR}}"
@@ -316,7 +348,11 @@ install -m 755 "${FILES_DIR}/virtual-keyboard" /usr/local/bin/virtual-keyboard
 install -m 644 "${FILES_DIR}/99-flint-usb-keyboard.rules" \
     /etc/udev/rules.d/99-flint-usb-keyboard.rules
 
-# ── 5. Enable, and on a live system also apply immediately ───────────────────
+# ── 5. SSH login MOTD notice ──────────────────────────────────────────────────
+install -m 755 "${FILES_DIR}/99-flint-virtual-keyboard-motd" \
+    /etc/update-motd.d/99-flint-virtual-keyboard-motd
+
+# ── 6. Enable, and on a live system also apply immediately ───────────────────
 systemctl enable ydotoold.service
 
 # /run/systemd/system only exists when systemd is actually running as PID 1 —
@@ -351,7 +387,7 @@ git commit -m "feat: add idempotent virtual-keyboard installer for build and liv
 
 ---
 
-### Task 5: pi-gen sub-stage wrapper
+### Task 6: pi-gen sub-stage wrapper
 
 **Files:**
 - Create: `stage-flint/00-flint/03-run.sh`
@@ -374,14 +410,16 @@ install -m 644 "${STAGE_DIR}/files/virtual-keyboard" \
     "${ROOTFS_DIR}/tmp/virtual-keyboard"
 install -m 644 "${STAGE_DIR}/files/99-flint-usb-keyboard.rules" \
     "${ROOTFS_DIR}/tmp/99-flint-usb-keyboard.rules"
+install -m 644 "${STAGE_DIR}/files/99-flint-virtual-keyboard-motd" \
+    "${ROOTFS_DIR}/tmp/99-flint-virtual-keyboard-motd"
 
 on_chroot << 'CHROOT'
 bash /tmp/install-virtual-keyboard.sh /tmp
-rm -f /tmp/install-virtual-keyboard.sh /tmp/ydotoold.service /tmp/virtual-keyboard /tmp/99-flint-usb-keyboard.rules
+rm -f /tmp/install-virtual-keyboard.sh /tmp/ydotoold.service /tmp/virtual-keyboard /tmp/99-flint-usb-keyboard.rules /tmp/99-flint-virtual-keyboard-motd
 CHROOT
 ```
 
-`YDOTOOL_DEB_URL`, if exported before the pi-gen build runs (Task 6), is inherited by the
+`YDOTOOL_DEB_URL`, if exported before the pi-gen build runs (Task 7), is inherited by the
 `on_chroot` subshell the same way `FLINT_DEB_URL` already is.
 
 - [ ] **Step 2: Make it executable**
@@ -407,7 +445,7 @@ git commit -m "feat: wire virtual-keyboard installer into pi-gen stage-flint"
 
 ---
 
-### Task 6: Wire `YDOTOOL_DEB_URL` through `build.sh`
+### Task 7: Wire `YDOTOOL_DEB_URL` through `build.sh`
 
 **Files:**
 - Modify: `build.sh:71-72`
@@ -444,13 +482,13 @@ git commit -m "feat: export YDOTOOL_DEB_URL override point in build.sh"
 
 ---
 
-### Task 7: Wire `YDOTOOL_DEB_URL` through CI
+### Task 8: Wire `YDOTOOL_DEB_URL` through CI
 
 **Files:**
 - Modify: `.github/workflows/build.yml:106-111`
 
 **Why:** `CLAUDE.md` explicitly flags that `build.sh` and this workflow's env wiring can
-drift out of sync — do this in the same task as Task 6, not later.
+drift out of sync — do this in the same task as Task 7, not later.
 
 - [ ] **Step 1: Add the env var to the "Build image" step**
 
@@ -491,7 +529,7 @@ git commit -m "ci: wire YDOTOOL_DEB_URL through the build workflow"
 
 ---
 
-### Task 8: Document the feature in `CLAUDE.md`
+### Task 9: Document the feature in `CLAUDE.md`
 
 **Files:**
 - Modify: `CLAUDE.md` (append a new subsection after the existing "Wi-Fi comes up
@@ -519,7 +557,9 @@ virtual device gets `ID_INPUT_KEYBOARD=1` from the kernel/udev the same way a ph
 keyboard does, so it's picked up by the *existing* `99-flint-usb-keyboard.rules` unchanged
 — no APPLaunch/flint-specific code exists for this. Run `virtual-keyboard` after SSH-ing in
 (`/usr/local/bin/virtual-keyboard`, installed by the same stage) to forward every keystroke
-from the SSH terminal to the device; Ctrl+] exits. The `ydotool` client resolves its
+from the SSH terminal to the device; Ctrl+] exits. A dynamic-MOTD script
+(`/etc/update-motd.d/99-flint-virtual-keyboard-motd`) mentions the command on every SSH
+login so a user without a keyboard isn't left guessing. The `ydotool` client resolves its
 control socket via `$YDOTOOL_SOCKET` → `$XDG_RUNTIME_DIR/.ydotool_socket` →
 `/tmp/.ydotool_socket`, and an SSH login session normally has `XDG_RUNTIME_DIR` set by
 logind — both the daemon (`--socket-path`) and `virtual-keyboard` pin
@@ -548,7 +588,7 @@ git commit -m "docs: document the SSH virtual-keyboard feature in CLAUDE.md"
 
 ---
 
-### Task 9: Real build and hardware verification
+### Task 10: Real build and hardware verification
 
 **Files:** none (verification only — this repo has no unit-test runner; per `CLAUDE.md`,
 an actual image build plus real-hardware testing is the only way to validate pi-gen stage
@@ -585,6 +625,7 @@ scope" section), then:
 
 ```bash
 ssh <user>@<device-ip-or-hostname>.local
+# The MOTD printed above this prompt should already mention 'virtual-keyboard'.
 systemctl status ydotoold.service   # should already be active, no login needed to start it
 udevadm info /dev/input/cardputerzero-kbd | grep ID_INPUT_KEYBOARD  # confirms the
                                                                      # uinput device is
@@ -613,6 +654,7 @@ the idempotent-rerun behavior on the already-patched device:
 ```bash
 scp stage-flint/files/install-virtual-keyboard.sh stage-flint/files/ydotoold.service \
     stage-flint/files/virtual-keyboard stage-flint/files/99-flint-usb-keyboard.rules \
+    stage-flint/files/99-flint-virtual-keyboard-motd \
     <user>@<device>.local:/tmp/
 ssh <user>@<device>.local 'sudo bash /tmp/install-virtual-keyboard.sh /tmp'
 ```
