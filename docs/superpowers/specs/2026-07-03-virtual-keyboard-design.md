@@ -110,7 +110,7 @@ Description=ydotoold virtual input daemon
 After=local-fs.target
 
 [Service]
-ExecStart=/usr/bin/ydotoold --socket-perm 0666
+ExecStart=/usr/bin/ydotoold --socket-path /tmp/.ydotool_socket --socket-perm 0666
 Restart=always
 
 [Install]
@@ -119,6 +119,17 @@ WantedBy=multi-user.target
 
 System-level so it starts at boot, before any login — satisfies the no-hotplug
 constraint on APPLaunch's side.
+
+**Socket path pinned explicitly, verified against `ydotool` v1.0.4 source
+(`Client/ydotool.c`, `Daemon/ydotoold.c`) rather than assumed:** the client resolves the
+socket path as `$YDOTOOL_SOCKET` → else `$XDG_RUNTIME_DIR/.ydotool_socket` → else
+`/tmp/.ydotool_socket`. Our daemon runs as a root system service (no `XDG_RUNTIME_DIR`),
+so it lands on `/tmp/.ydotool_socket` by default — but an SSH-logged-in user's shell
+normally *does* have `XDG_RUNTIME_DIR=/run/user/<uid>` set by logind, which would make the
+`ydotool` client look in the wrong place and silently fail to connect. Fixed by pinning
+`--socket-path /tmp/.ydotool_socket` on the daemon and `YDOTOOL_SOCKET=/tmp/.ydotool_socket`
+in `virtual-keyboard`'s own environment, so neither side depends on `XDG_RUNTIME_DIR`
+being absent/present.
 
 ### 4. Edit to `stage-flint/files/99-flint-usb-keyboard.rules`
 
