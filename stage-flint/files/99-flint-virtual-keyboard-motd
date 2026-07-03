@@ -1,0 +1,3 @@
+#!/bin/sh
+echo
+echo "No physical keyboard? Run 'virtual-keyboard' to control this device from this SSH session (Ctrl+] to exit)."
