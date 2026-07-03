@@ -1,0 +1,10 @@
+[Unit]
+Description=ydotoold virtual input daemon
+After=local-fs.target
+
+[Service]
+ExecStart=/usr/bin/ydotoold --socket-path /tmp/.ydotool_socket --socket-perm 0666
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
