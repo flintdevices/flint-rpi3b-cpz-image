@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Forward local keystrokes to the RPi's virtual keyboard via ydotool.
+
+Run this after SSH-ing into the device. Every key you press is forwarded
+to ydotoold's virtual keyboard, behaving exactly as if a USB keyboard were
+plugged into the RPi. Press Ctrl+] to exit and return to the shell.
+"""
+import curses
+import os
+import subprocess
+import sys
+
+EXIT_KEY = "\x1d"  # Ctrl+]
+
+# ydotoold (see stage-flint/files/ydotoold.service) is pinned to this socket
+# path explicitly. The ydotool client falls back to $XDG_RUNTIME_DIR, which an
+# SSH login session normally has set — pin it here too so client and daemon
+# always agree regardless of the invoking session's environment.
+YDOTOOL_ENV = {**os.environ, "YDOTOOL_SOCKET": "/tmp/.ydotool_socket"}
+
+# Linux input-event-codes (linux/input-event-codes.h) for keys curses reports
+# as KEY_* int constants rather than printable characters.
+SPECIAL_KEYS = {
+    curses.KEY_UP: 103,
+    curses.KEY_DOWN: 108,
+    curses.KEY_LEFT: 105,
+    curses.KEY_RIGHT: 106,
+    curses.KEY_HOME: 102,
+    curses.KEY_END: 107,
+    curses.KEY_PPAGE: 104,  # Page Up
+    curses.KEY_NPAGE: 109,  # Page Down
+    curses.KEY_DC: 111,     # Delete
+    curses.KEY_BACKSPACE: 14,
+    curses.KEY_ENTER: 28,
+}
+
+# Control characters curses reports as plain one-character strings rather
+# than KEY_* constants.
+CONTROL_KEYS = {
+    "\n": 28,    # Enter
+    "\r": 28,    # Enter
+    "\x7f": 14,  # Backspace (many terminals send DEL for Backspace)
+    "\x08": 14,  # Backspace (BS)
+    "\t": 15,    # Tab
+    "\x1b": 1,   # Esc
+}
+
+
+def send_key(code):
+    subprocess.run(
+        ["ydotool", "key", f"{code}:1", f"{code}:0"],
+        env=YDOTOOL_ENV, check=True,
+    )
+
+
+def send_text(text):
+    subprocess.run(["ydotool", "type", "--", text], env=YDOTOOL_ENV, check=True)
+
+
+def check_ydotool_available():
+    try:
+        subprocess.run(
+            ["ydotool", "key", "0:0"],
+            env=YDOTOOL_ENV, capture_output=True, check=True,
+        )
+    except FileNotFoundError:
+        sys.exit("virtual-keyboard: 'ydotool' is not installed.")
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.decode(errors="replace") if exc.stderr else ""
+        sys.exit(
+            "virtual-keyboard: ydotool could not reach ydotoold "
+            f"(is the service running?). Details: {stderr.strip()}"
+        )
+
+
+def run(stdscr):
+    curses.cbreak()
+    curses.noecho()
+    stdscr.keypad(True)
+    stdscr.addstr(0, 0, "virtual-keyboard active. Press Ctrl+] to exit.")
+    stdscr.refresh()
+
+    while True:
+        ch = stdscr.get_wch()
+
+        if isinstance(ch, str) and ch == EXIT_KEY:
+            break
+
+        if isinstance(ch, int):
+            code = SPECIAL_KEYS.get(ch)
+            if code is not None:
+                send_key(code)
+            continue
+
+        code = CONTROL_KEYS.get(ch)
+        if code is not None:
+            send_key(code)
+        else:
+            send_text(ch)
+
+
+def main():
+    check_ydotool_available()
+    curses.wrapper(run)
+
+
+if __name__ == "__main__":
+    main()
