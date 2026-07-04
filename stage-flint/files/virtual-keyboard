@@ -4,13 +4,26 @@
 Run this after SSH-ing into the device. Every key you press is forwarded
 to ydotoold's virtual keyboard, behaving exactly as if a USB keyboard were
 plugged into the RPi. Press Ctrl+] to exit and return to the shell.
+
+Holding a key down (e.g. flint's "long-press Esc to exit") is detected via
+the local terminal's own key-repeat: holding a key makes the terminal send
+the same character repeatedly, which we use as a proxy for "still held" and
+turn into a single sustained key-down/key-up pair instead of a rapid string
+of independent taps — see run() for the timing logic.
 """
 import curses
 import os
 import subprocess
 import sys
+import time
 
 EXIT_KEY = "\x1d"  # Ctrl+]
+
+# If no repeat of the currently-held key arrives within this window, treat it
+# as released. Must be longer than typical terminal key-repeat gaps (usually
+# well under 100ms once repeating) but short enough that a single tap doesn't
+# feel delayed.
+RELEASE_TIMEOUT_MS = 150
 
 # ydotoold (see stage-flint/files/ydotoold.service) is pinned to this socket
 # path explicitly. The ydotool client falls back to $XDG_RUNTIME_DIR, which an
@@ -46,9 +59,9 @@ CONTROL_KEYS = {
 }
 
 
-def send_key(code):
+def send_key_event(code, value):
     subprocess.run(
-        ["ydotool", "key", f"{code}:1", f"{code}:0"],
+        ["ydotool", "key", f"{code}:{value}"],
         env=YDOTOOL_ENV, check=True,
     )
 
@@ -77,26 +90,53 @@ def run(stdscr):
     curses.cbreak()
     curses.noecho()
     stdscr.keypad(True)
+    stdscr.timeout(RELEASE_TIMEOUT_MS // 2)
     stdscr.addstr(0, 0, "virtual-keyboard active. Press Ctrl+] to exit.")
     stdscr.refresh()
 
+    held_code = None
+    held_last_seen = 0.0
+
+    def release_held():
+        nonlocal held_code
+        if held_code is not None:
+            send_key_event(held_code, 0)
+            held_code = None
+
     while True:
-        ch = stdscr.get_wch()
-
-        if isinstance(ch, str) and ch == EXIT_KEY:
-            break
-
-        if isinstance(ch, int):
-            code = SPECIAL_KEYS.get(ch)
-            if code is not None:
-                send_key(code)
+        try:
+            ch = stdscr.get_wch()
+        except curses.error:
+            # No input arrived within the poll window — if we're tracking a
+            # held key and its repeat stream has gone quiet, it was released.
+            if held_code is not None and (time.monotonic() - held_last_seen) * 1000 >= RELEASE_TIMEOUT_MS:
+                release_held()
             continue
 
-        code = CONTROL_KEYS.get(ch)
+        if isinstance(ch, str) and ch == EXIT_KEY:
+            release_held()
+            break
+
+        code = SPECIAL_KEYS.get(ch) if isinstance(ch, int) else CONTROL_KEYS.get(ch)
+
         if code is not None:
-            send_key(code)
-        else:
-            send_text(ch)
+            if code == held_code:
+                # Same code arriving again means the terminal is auto-repeating
+                # because the local key is still held — extend the hold instead
+                # of tapping again.
+                held_last_seen = time.monotonic()
+            else:
+                release_held()
+                send_key_event(code, 1)
+                held_code = code
+                held_last_seen = time.monotonic()
+            continue
+
+        if isinstance(ch, int):
+            continue  # unmapped special key
+
+        release_held()
+        send_text(ch)
 
 
 def main():

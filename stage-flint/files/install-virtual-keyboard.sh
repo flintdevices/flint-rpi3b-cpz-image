@@ -33,6 +33,18 @@ fi
 # requirement.)
 install -m 644 "${FILES_DIR}/ydotoold.service" /etc/systemd/system/ydotoold.service
 
+# The .deb's postinst globally enables its own /usr/lib/systemd/user/ydotool.service
+# (WantedBy=default.target). This was assumed harmless because a user unit "only
+# starts at login" — true, but linger (enabled for the first user so APPLaunch
+# starts without a login, see 01-run.sh) makes systemd start that user's default
+# target at boot too, with no login required. That starts a *second* ydotoold
+# (default socket, default uinput device) racing ours for the keyboard udev
+# symlink — confirmed on real hardware as the cause of virtual-keyboard working
+# once and then not, since which daemon's uinput device wins the symlink is a
+# boot-order race. Mask the packaged unit so only ours ever runs.
+systemctl --global disable ydotool.service 2>/dev/null || true
+systemctl --global mask ydotool.service
+
 # ── 3. Install the virtual-keyboard CLI ──────────────────────────────────────
 install -m 755 "${FILES_DIR}/virtual-keyboard" /usr/local/bin/virtual-keyboard
 
