@@ -125,3 +125,9 @@ install -m 644 "${STAGE_DIR}/files/99-flint-usb-keyboard.rules" \
 # systemd user drop-in inherited by flint. See files/APPLaunch-flint-keyboard.conf.
 install -m 644 -D "${STAGE_DIR}/files/APPLaunch-flint-keyboard.conf" \
     "${ROOTFS_DIR}/etc/systemd/user/APPLaunch.service.d/flint-keyboard.conf"
+
+# APPLaunch defaults to /dev/fb0, which on this board is a boot-order race
+# between vc4-kms-v3d (HDMI) and the ST7789 SPI panel — pin it to the stable
+# /dev/fb_lcd symlink instead. See files/APPLaunch-framebuffer.conf.
+install -m 644 -D "${STAGE_DIR}/files/APPLaunch-framebuffer.conf" \
+    "${ROOTFS_DIR}/etc/systemd/user/APPLaunch.service.d/framebuffer.conf"
