@@ -23,4 +23,18 @@
 # logind seat mechanism, not guaranteed for SSH sessions). Left world-readable rather
 # than gated behind group membership — acceptable because SSH access to this box
 # already implies full shell control, so this adds no new attack surface.
-ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_KEYBOARD}=="1", SYMLINK+="input/by-path/platform-3f804000.i2c-event", SYMLINK+="input/cardputerzero-kbd", MODE="0666"
+#
+# ydotoold's uinput virtual device (see install-virtual-keyboard.sh) also sets
+# ID_INPUT_KEYBOARD=1 and matches this same rule, since that's exactly what
+# lets the SSH virtual keyboard work with zero flint/APPLaunch-specific code.
+# But both a physical USB keyboard and ydotoold's device requesting the same
+# symlink name makes it a boot-order race for which one udev actually points
+# it at — confirmed on real hardware as a physical keyboard silently going
+# dead after enabling ydotoold to start unconditionally at boot (see 01-run.sh
+# linger fix). Split into two rules with an explicit priority instead of
+# relying on event ordering: physical keyboards keep the default priority (0),
+# ydotoold's device is pinned lower (-100) so it only wins the symlink when no
+# physical keyboard is attached, and correctly loses it back the moment one is
+# plugged in.
+ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_KEYBOARD}=="1", ATTRS{name}!="ydotoold virtual device", SYMLINK+="input/by-path/platform-3f804000.i2c-event", SYMLINK+="input/cardputerzero-kbd", MODE="0666"
+ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_KEYBOARD}=="1", ATTRS{name}=="ydotoold virtual device", SYMLINK+="input/by-path/platform-3f804000.i2c-event", SYMLINK+="input/cardputerzero-kbd", OPTIONS+="link_priority=-100", MODE="0666"
