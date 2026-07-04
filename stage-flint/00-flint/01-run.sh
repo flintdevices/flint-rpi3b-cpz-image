@@ -132,6 +132,18 @@ CHROOT
 install -m 644 "${STAGE_DIR}/files/99-flint-usb-keyboard.rules" \
     "${ROOTFS_DIR}/etc/udev/rules.d/99-flint-usb-keyboard.rules"
 
+# M5Stack's Cardputer-style external keyboard never emits real arrow-key HID
+# codes for its Fn+,./; cluster — see files/70-flint-cardputer-keyboard.hwdb
+# for the full story and why this remaps those four keys unconditionally.
+# hwdb entries are compiled into a binary hwdb.bin that udev actually reads at
+# runtime, so systemd-hwdb update must run at build time or this rule is
+# silently inert until something happens to regenerate it on first boot.
+install -m 644 "${STAGE_DIR}/files/70-flint-cardputer-keyboard.hwdb" \
+    "${ROOTFS_DIR}/etc/udev/hwdb.d/70-flint-cardputer-keyboard.hwdb"
+on_chroot << 'CHROOT'
+systemd-hwdb update
+CHROOT
+
 # flint itself (launched by APPLaunch) auto-detects the TCA8418 keyboard and
 # otherwise falls back to the wrong device; point it at the USB keyboard via a
 # systemd user drop-in inherited by flint. See files/APPLaunch-flint-keyboard.conf.

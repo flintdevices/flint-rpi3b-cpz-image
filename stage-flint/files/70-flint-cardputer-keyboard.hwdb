@@ -1,0 +1,29 @@
+# M5Stack Cardputer-style external keyboard (Espressif vendor ID 303a — seen as
+# product 1001 "StampS3 Keyboard" and product 8000 "M5-Cardputer Keyboard"
+# across different firmware builds the user tested; matched by vendor only so
+# this survives future firmware/product-ID changes).
+#
+# This keyboard's arrow-key cluster is Fn + , . ; / — but its firmware sends
+# the literal comma/dot/semicolon/slash HID usage code whether or not Fn is
+# held (confirmed with evtest across two different firmware builds: no
+# distinguishable event, and no separate Fn keycode, differed between the
+# plain and Fn-held cases for three of the four keys). It never emits a real
+# HID arrow-key usage code (0x4F-0x52). There is no way to recover "Fn or not"
+# at this layer since the firmware itself doesn't expose it — so this remaps
+# those four keys unconditionally to arrows. Trade-off accepted: this
+# keyboard can no longer type a literal comma/period/semicolon/slash; that's
+# fine for flint/APPLaunch's launcher-style UI, which is the only thing this
+# keyboard drives.
+#
+# Scancodes are USB HID usage-page-7 (keyboard/keypad) usage IDs, in the
+# KEYBOARD_KEY_<hex> format systemd's hwdb builtin expects (see
+# /usr/lib/udev/hwdb.d/60-keyboard.hwdb for more examples). 0x33/0x36/0x37
+# are the plain Semicolon/Comma/Dot usages; 0x38 is plain Slash and 0x54 is
+# the Keypad-Slash usage, since one firmware build sent 0x38 for Fn+/ and the
+# other sent 0x54 for the same physical key — map both to be safe.
+evdev:input:b0003v303Ap*
+ KEYBOARD_KEY_70033=up
+ KEYBOARD_KEY_70037=down
+ KEYBOARD_KEY_70036=left
+ KEYBOARD_KEY_70038=right
+ KEYBOARD_KEY_70054=right
