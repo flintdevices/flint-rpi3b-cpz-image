@@ -215,9 +215,21 @@ workflow's heredoc now both set `DISABLE_FIRST_BOOT_USER_RENAME=1`, which skips 
 (`export-image/01-user-rename/01-run.sh` just removes `piwiz.desktop` instead of running
 `rename-user`) so the build-time `flint`/`flint` account is what's actually on the image — the
 `--global enable APPLaunch.service` approach above still works fine with a known username, it just
-no longer has to. A global-enabled user unit starts on that user's first login (console *or* SSH)
-without needing `loginctl enable-linger` — only add linger if the goal becomes "APPLaunch starts
-with no login at all."
+no longer has to.
+
+**A `--global`-enabled user unit does *not* start at boot on its own — it needs `loginctl
+enable-linger`, contrary to what was assumed here originally.** The assumption was that a
+global-enabled unit starts "on that user's first login (console or SSH) without needing linger" —
+that's true only in the sense that a login session *also* happens to start the user's systemd
+instance; without an active session, `user@1000.service` never starts at boot, so `APPLaunch`
+never runs. Confirmed on real hardware: after a clean reboot with nobody logged in, `journalctl
+--user -u APPLaunch.service -b` showed no "Started" line at all — the display just stayed black
+indefinitely — until the first SSH login started the user manager as a side effect, at which point
+APPLaunch came up immediately. `01-run.sh` now also creates the linger marker file directly
+(`/var/lib/systemd/linger/${FIRST_USER_NAME}`) rather than running `loginctl enable-linger`, since
+`loginctl` talks to a running logind over D-Bus and there's no live systemd inside the pi-gen
+chroot to talk to — the marker file is literally all `enable-linger` does, so writing it directly
+works the same without needing a live session.
 
 **Wi-Fi comes up soft-blocked by design, not by bug.** `stage2/05-cardputerzero/01-run.sh` sets
 `options rfkill default_state=0` in `/etc/modprobe.d/rfkill_default.conf`, so `wlan0` (and `bt`)

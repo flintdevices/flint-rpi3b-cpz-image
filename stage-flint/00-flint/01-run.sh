@@ -105,11 +105,23 @@ CHROOT
 # whatever it does to enable APPLaunch for the interactively-created user.
 # Disable it and enable APPLaunch globally instead — `--global` applies to
 # every current/future user without needing to know the interactive first-boot
-# username at build time, and starts on that user's first login (console or
-# SSH) without needing loginctl linger.
+# username at build time.
+#
+# A `--global`-enabled *user* unit only starts once a login session exists for
+# that user — confirmed on real hardware: after a clean reboot with nobody
+# logged in yet, `APPLaunch.service` simply never started (journalctl showed
+# no "Started" line at all until the first SSH login), leaving the display
+# black indefinitely. `loginctl enable-linger` is what makes systemd start the
+# user's manager (and its enabled units) at boot regardless of login state —
+# but `loginctl` itself talks to a running logind over D-Bus, which doesn't
+# exist inside the pi-gen chroot. Linger is really just a marker file
+# (`/var/lib/systemd/linger/<user>`) that logind checks at boot, so create it
+# directly instead.
 on_chroot << 'CHROOT'
 systemctl disable LaunchWizard.service
 systemctl --global enable APPLaunch.service
+mkdir -p /var/lib/systemd/linger
+touch "/var/lib/systemd/linger/${FIRST_USER_NAME}"
 CHROOT
 
 # ── 6. USB keyboard for APPLaunch ─────────────────────────────────────────────
