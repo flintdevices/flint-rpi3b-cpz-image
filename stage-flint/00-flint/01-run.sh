@@ -74,11 +74,6 @@ disable_splash=1
 # Boot at max ARM/core clock for the first 30s so the (emulation-free) native
 # init runs at full speed, then settle to on-demand governor.
 initial_turbo=30
-# Onboard Bluetooth is unused on this image (it comes up rfkill-blocked by
-# design — see CLAUDE.md) and its UART/hciuart init only adds boot time. Turn
-# the radio off entirely; hciuart.service is disabled in the chroot block below
-# so it doesn't fail/retry looking for a BT device that's no longer wired up.
-dtoverlay=disable-bt
 EOF
 
 # ── 3. SSH ────────────────────────────────────────────────────────────────────
@@ -189,10 +184,6 @@ on_chroot << 'CHROOT'
 # the full timeout — and nothing in the flint/display path needs the network
 # to be online first. Mask it so it can never be pulled into the boot path.
 systemctl mask NetworkManager-wait-online.service
-
-# dtoverlay=disable-bt (config.txt) removes the onboard BT/UART; hciuart would
-# otherwise fail/retry hunting for a device that's no longer there.
-systemctl disable hciuart.service 2>/dev/null || true
 
 # Light up the SPI panel with a console early in boot.
 systemctl enable flint-panel-console.service

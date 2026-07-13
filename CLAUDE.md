@@ -330,10 +330,11 @@ boot, and stop gating the panel behind the slow bits:
   `/dev/fbN` index), so boot/login text appears on the panel within a couple of seconds. APPLaunch
   later opens the same `/dev/fb_lcd` and paints over it — no conflict. This doubles as an on-device
   debug console, the SPI-panel analogue of the HDMI-console argument above.
-- **`config.txt` boot-speed block:** `boot_delay=0`, `disable_splash=1`, `initial_turbo=30`, and
-  `dtoverlay=disable-bt` (Bluetooth is unused and comes up rfkill-blocked anyway; disabling it
-  drops the UART/hciuart bring-up — `hciuart.service` is also disabled in the chroot block so it
-  doesn't fail hunting for a device that's no longer wired).
+- **`config.txt` boot-speed block:** `boot_delay=0`, `disable_splash=1`, `initial_turbo=30`.
+  Do **not** add `dtoverlay=disable-bt`/`dtoverlay=disable-wifi` here — Bluetooth and Wi-Fi are
+  both used post-boot on this device (the radios come up rfkill-blocked by design, not because
+  they're unused), so disabling either at the firmware level breaks real functionality for a few
+  seconds of boot time that isn't worth it.
 
 ## Key constraints when modifying stages
 
