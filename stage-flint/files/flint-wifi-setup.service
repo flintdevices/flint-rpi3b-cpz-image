@@ -2,7 +2,12 @@
 Description=flint first-boot Wi-Fi configuration
 After=network-pre.target NetworkManager.service
 Wants=NetworkManager.service
-Before=network.target wpa_supplicant.service
+# Deliberately NOT ordered Before=network.target: with real credentials this
+# script polls/retries for up to ~30s, and network.target gates
+# systemd-user-sessions -> user@UID -> APPLaunch (the panel). Ordering it before
+# network.target put that wait directly on the boot-to-display path. It runs as
+# a background oneshot after NetworkManager instead, so it never delays the
+# display coming up.
 ConditionPathExists=/boot/firmware/wifi.txt
 
 [Service]
