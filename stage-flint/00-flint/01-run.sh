@@ -65,6 +65,20 @@ disable_fw_kms_setup=1
 # System
 arm_64bit=1
 disable_overscan=1
+
+# ── Boot speed ───────────────────────────────────────────────────────────────
+# boot_delay defaults to 1s of firmware wait; nothing here needs it.
+boot_delay=0
+# Skip the firmware "rainbow" splash so the panel/HDMI aren't held on it.
+disable_splash=1
+# Boot at max ARM/core clock for the first 30s so the (emulation-free) native
+# init runs at full speed, then settle to on-demand governor.
+initial_turbo=30
+# Onboard Bluetooth is unused on this image (it comes up rfkill-blocked by
+# design — see CLAUDE.md) and its UART/hciuart init only adds boot time. Turn
+# the radio off entirely; hciuart.service is disabled in the chroot block below
+# so it doesn't fail/retry looking for a BT device that's no longer wired up.
+dtoverlay=disable-bt
 EOF
 
 # ── 3. SSH ────────────────────────────────────────────────────────────────────
@@ -155,3 +169,31 @@ install -m 644 -D "${STAGE_DIR}/files/APPLaunch-flint-keyboard.conf" \
 # /dev/fb_lcd symlink instead. See files/APPLaunch-framebuffer.conf.
 install -m 644 -D "${STAGE_DIR}/files/APPLaunch-framebuffer.conf" \
     "${ROOTFS_DIR}/etc/systemd/user/APPLaunch.service.d/framebuffer.conf"
+
+# ── 7. Boot speed / early panel feedback ─────────────────────────────────────
+# The ST7789 panel stays black from power-on until APPLaunch — a *lingered
+# user* service, i.e. the very end of boot — finally renders to it. This
+# service routes a text console onto the panel as soon as the fbtft driver
+# probes, so the display lights up with boot/login output within seconds
+# instead of ~a minute. APPLaunch later opens the same /dev/fb_lcd and paints
+# over it. See files/flint-panel-console.{service,sh}.
+install -m 644 "${STAGE_DIR}/files/flint-panel-console.service" \
+    "${ROOTFS_DIR}/etc/systemd/system/flint-panel-console.service"
+install -m 755 "${STAGE_DIR}/files/flint-panel-console.sh" \
+    "${ROOTFS_DIR}/usr/local/sbin/flint-panel-console.sh"
+
+on_chroot << 'CHROOT'
+# NetworkManager-wait-online.service blocks network-online.target for up to 90s
+# waiting for connectivity. This image comes up with Wi-Fi rfkill-blocked and
+# unconfigured by default (see CLAUDE.md), so on a normal boot it always hits
+# the full timeout — and nothing in the flint/display path needs the network
+# to be online first. Mask it so it can never be pulled into the boot path.
+systemctl mask NetworkManager-wait-online.service
+
+# dtoverlay=disable-bt (config.txt) removes the onboard BT/UART; hciuart would
+# otherwise fail/retry hunting for a device that's no longer there.
+systemctl disable hciuart.service 2>/dev/null || true
+
+# Light up the SPI panel with a console early in boot.
+systemctl enable flint-panel-console.service
+CHROOT
