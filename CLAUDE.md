@@ -304,38 +304,6 @@ Backlight is hardwired to 3.3V (always on) — there is no PWM circuit, so HAL c
 [README.md](README.md) and [docs/rpi3bplus-dev-setup.md](docs/rpi3bplus-dev-setup.md) before
 assuming a HAL call should behave identically to the real device.
 
-## Boot speed / "the display takes forever to come on"
-
-The panel is black from power-on until something renders to it, and the thing that normally does
-— `APPLaunch.service` — is a **lingered *user* service** (`user@UID` via the linger marker, see the
-`loginctl enable-linger` note above). It only starts once systemd-logind brings up the user
-manager at the tail end of boot, so "display is slow to light up" is really "the whole system boot
-is slow, and the panel is gated behind its slowest parts." Attack it on two fronts — shorten the
-boot, and stop gating the panel behind the slow bits:
-
-- **`NetworkManager-wait-online.service` is the dominant delay and is masked** (`01-run.sh`
-  section 7). Debian enables it by default; it blocks `network-online.target` for up to 90s
-  waiting for connectivity. This image boots with Wi-Fi rfkill-blocked and unconfigured by default
-  (see the Wi-Fi notes above), so on a normal boot it *always* hits the full timeout, and nothing
-  in the flint/display path needs the network up first. If you re-introduce a boot-time
-  network-online dependency, expect this delay to come back. Confirm with `systemd-analyze blame`
-  (it's almost always at the top) and `systemd-analyze critical-chain`.
-- **`flint-wifi-setup.service` must NOT be ordered `Before=network.target`.** It was, and with
-  real credentials it polls/retries for ~30s — that wait sat on `network.target` →
-  `systemd-user-sessions` → `user@UID` → `APPLaunch`, i.e. directly in front of the panel. It's now
-  a background oneshot ordered only `After=NetworkManager.service`, so it never delays the display.
-- **Early panel console (`flint-panel-console.service` + `.sh`, `fbset` package for
-  `con2fbmap`).** Rather than leave the panel black until the end-of-boot user service, this maps
-  tty1 onto the ST7789 fb as soon as the fbtft driver probes (`/dev/fb_lcd` resolved to its numeric
-  `/dev/fbN` index), so boot/login text appears on the panel within a couple of seconds. APPLaunch
-  later opens the same `/dev/fb_lcd` and paints over it — no conflict. This doubles as an on-device
-  debug console, the SPI-panel analogue of the HDMI-console argument above.
-- **`config.txt` boot-speed block:** `boot_delay=0`, `disable_splash=1`, `initial_turbo=30`.
-  Do **not** add `dtoverlay=disable-bt`/`dtoverlay=disable-wifi` here — Bluetooth and Wi-Fi are
-  both used post-boot on this device (the radios come up rfkill-blocked by design, not because
-  they're unused), so disabling either at the firmware level breaks real functionality for a few
-  seconds of boot time that isn't worth it.
-
 ## Key constraints when modifying stages
 
 - pi-gen skips any stage script that isn't executable — this is the mechanism used to disable
