@@ -10,8 +10,12 @@ if [ ! -f "${WIFI_FILE}" ]; then
     exit 0
 fi
 
-SSID=$(grep -E '^\s*WIFI_SSID=' "${WIFI_FILE}" | cut -d= -f2- | tr -d '[:space:]')
-PASS=$(grep -E '^\s*WIFI_PASSWORD=' "${WIFI_FILE}" | cut -d= -f2- | tr -d '[:space:]')
+# Trim only leading/trailing whitespace and a trailing \r (in case wifi.txt
+# was edited on Windows) — SSIDs/passwords may legitimately contain internal
+# spaces, which `tr -d '[:space:]'` used to silently strip out.
+trim() { sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/\r$//'; }
+SSID=$(grep -E '^\s*WIFI_SSID=' "${WIFI_FILE}" | cut -d= -f2- | trim)
+PASS=$(grep -E '^\s*WIFI_PASSWORD=' "${WIFI_FILE}" | cut -d= -f2- | trim)
 
 if [ -z "${SSID}" ]; then
     exit 0
@@ -36,20 +40,55 @@ for _ in $(seq 1 15); do
     sleep 1
 done
 
-# NetworkManager is this image's actual network stack (not wpa_supplicant/
-# dhclient directly) — nmcli handles associating and DHCP in one step, and
-# stores the resulting connection profile so it reconnects on future boots
-# without this script running again. Retry a few times: even once
-# "manageable", the radio/device can take a moment to settle right after
-# boot.
-CONNECTED=0
-for _ in $(seq 1 5); do
-    if nmcli device wifi connect "${SSID}" password "${PASS}"; then
-        CONNECTED=1
+# wlan0 being "manageable" doesn't mean it can scan yet: NetworkManager's own
+# D-Bus activation of wpa_supplicant can itself take several "re-acquiring
+# supplicant interface" retries this early in boot (observed up to ~20s across
+# 3 retries on real hardware). Attempting to connect before that settles
+# always fails with "No network with SSID ... found" even when the network is
+# right there, because the scan cache is still empty — not a bad password.
+# Poll for the target SSID to actually show up in a (forced) rescan instead of
+# guessing a fixed timeout.
+FOUND=0
+for _ in $(seq 1 20); do
+    if nmcli -t -f SSID device wifi list ifname wlan0 --rescan yes 2>/dev/null | grep -qxF "${SSID}"; then
+        FOUND=1
         break
     fi
-    sleep 3
+    sleep 2
 done
+if [ "${FOUND}" -ne 1 ]; then
+    logger -t flint-wifi-setup "${SSID} never appeared in a scan; will retry on next boot"
+    exit 1
+fi
+
+# If a saved connection profile for this SSID already exists (e.g. from a
+# previous successful run of this script, or a manual connect), NetworkManager
+# auto-activates it on its own well before this service runs. Calling
+# `nmcli device wifi connect` again while it's already active reliably fails
+# with "802-11-wireless-security.key-mgmt: property is missing" (reproduced on
+# real hardware) — nmcli mishandles re-adding a `password` to an
+# already-active profile instead of just recognizing it's already connected.
+# Without this check the script would fail on *every* subsequent boot forever
+# and never reach the scrub-credentials step below.
+ACTIVE_SSID=$(nmcli -t -f GENERAL.CONNECTION device show wlan0 2>/dev/null | cut -d: -f2-)
+
+CONNECTED=0
+if [ "${ACTIVE_SSID}" = "${SSID}" ]; then
+    CONNECTED=1
+else
+    # NetworkManager is this image's actual network stack (not wpa_supplicant/
+    # dhclient directly) — nmcli handles associating and DHCP in one step, and
+    # stores the resulting connection profile so it reconnects on future boots
+    # without this script running again. Retry a few times: even once the SSID
+    # is visible, association/DHCP can still transiently fail.
+    for _ in $(seq 1 5); do
+        if nmcli device wifi connect "${SSID}" password "${PASS}"; then
+            CONNECTED=1
+            break
+        fi
+        sleep 3
+    done
+fi
 
 if [ "${CONNECTED}" -ne 1 ]; then
     logger -t flint-wifi-setup "failed to connect to ${SSID}; will retry on next boot"

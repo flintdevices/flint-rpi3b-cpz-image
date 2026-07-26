@@ -2,7 +2,13 @@
 Description=flint first-boot Wi-Fi configuration
 After=network-pre.target NetworkManager.service
 Wants=NetworkManager.service
-Before=network.target wpa_supplicant.service
+# Deliberately NOT ordered Before=network.target: this script can poll/retry
+# for up to ~1 minute (waiting for wpa_supplicant's D-Bus interface to settle,
+# then for the SSID to appear in a scan, then connect retries), and
+# network.target gates most of the rest of boot (systemd-user-sessions ->
+# user@UID -> APPLaunch). It runs as a background oneshot after NetworkManager
+# instead, so it never delays the rest of boot — it just keeps retrying across
+# reboots (ConditionPathExists re-evaluates each boot) until it connects.
 ConditionPathExists=/boot/firmware/wifi.txt
 
 [Service]
